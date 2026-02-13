@@ -1,5 +1,5 @@
 pub mod dbt;
-mod fpt;
+pub mod fpt;
 
 use crate::errors::Error;
 

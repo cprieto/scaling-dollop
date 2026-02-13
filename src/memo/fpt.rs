@@ -12,7 +12,6 @@ struct FptReader<'a, R: Read + Seek> {
 impl<'a, R: Read + Seek> FptReader<'a, R> {
     pub fn new(reader: &'a mut R) -> Result<Self, Error> {
         let next_block = reader.read_u32::<BigEndian>()?;
-        reader.seek(SeekFrom::Start(4))?;
         let block_size = reader.read_u32::<BigEndian>()?;
 
         Ok(Self {

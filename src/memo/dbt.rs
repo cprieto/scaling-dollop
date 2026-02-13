@@ -26,7 +26,7 @@ impl<'a, R: Read + Seek> DbtReader<'a, R> {
 impl<'a, R> MemoReader for DbtReader<'a, R>
 where R : Read + Seek {
     fn read_memo<T: FromMemo>(&mut self, index: u32) -> Result<T, Error> {
-        let position = BLOCK_SIZE * index as u64;
+        let position = BLOCK_SIZE * (index as u64);
         self.reader.seek(SeekFrom::Start(position))?;
         let data = read_until_terminator(&mut self.reader, &[0x1a, 0x1a])?;
 
