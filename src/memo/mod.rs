@@ -1,10 +1,12 @@
 pub mod dbt;
 pub mod fpt;
 
+use std::io::{Read, Seek};
 use crate::errors::Error;
 
 /// Reads a memo field
-pub trait MemoReader {
+pub trait MemoReader<'a, R: Read + Seek> {
+    fn from_reader(reader: &'a mut R) -> Result<Self, Error> where Self: Sized;
     fn read_memo<T: FromMemo>(&mut self, index: u32) -> Result<T, Error>;
     fn next_available_block(&self) -> u32;
 }

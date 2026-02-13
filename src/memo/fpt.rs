@@ -9,8 +9,8 @@ struct FptReader<'a, R: Read + Seek> {
     next_block: u32,
 }
 
-impl<'a, R: Read + Seek> FptReader<'a, R> {
-    pub fn new(reader: &'a mut R) -> Result<Self, Error> {
+impl<'a, R: Read + Seek> MemoReader<'a, R> for FptReader<'a, R> {
+    fn from_reader(reader: &'a mut R) -> Result<Self, Error> {
         let next_block = reader.read_u32::<BigEndian>()?;
         let block_size = reader.read_u32::<BigEndian>()?;
 
@@ -20,9 +20,7 @@ impl<'a, R: Read + Seek> FptReader<'a, R> {
             block_size,
         })
     }
-}
 
-impl<'a, R: Read + Seek> MemoReader for FptReader<'a, R> {
     fn read_memo<T: FromMemo>(&mut self, index: u32) -> Result<T, Error> {
         let position = self.block_size * index;
         self.reader.seek(SeekFrom::Start(position as u64))?;
@@ -55,7 +53,7 @@ mod tests {
     #[test]
     fn test_grab_next_block_from_fpt() -> anyhow::Result<()> {
         let mut file = sample_file()?;
-        let reader = FptReader::new(&mut file)?;
+        let reader = FptReader::from_reader(&mut file)?;
 
         assert_eq!(11, reader.next_available_block());
 
@@ -65,7 +63,7 @@ mod tests {
     #[test]
     fn test_can_read_text_from_fpt() -> anyhow::Result<()> {
         let mut file = sample_file()?;
-        let mut reader = FptReader::new(&mut file)?;
+        let mut reader = FptReader::from_reader(&mut file)?;
         let block_size = reader.block_size as u32;
         let next_block = reader.next_block;
 

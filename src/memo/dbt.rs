@@ -6,13 +6,14 @@ use byteorder::{LittleEndian, ReadBytesExt};
 
 const BLOCK_SIZE: u64 = 512;
 
-struct DbtReader<'a, R: Read + Seek> {
+struct Dbt3Reader<'a, R: Read + Seek> {
     next_block: u32,
     reader: &'a mut R,
 }
 
-impl<'a, R: Read + Seek> DbtReader<'a, R> {
-    pub fn new(reader: &'a mut R) -> Result<Self, Error> {
+impl<'a, R> MemoReader<'a, R> for Dbt3Reader<'a, R>
+where R : Read + Seek {
+    fn from_reader(reader: &'a mut R) -> Result<Self, Error> {
         reader.seek(SeekFrom::Start(0))?;
         let next_block = reader.read_u32::<LittleEndian>()?;
 
@@ -21,10 +22,7 @@ impl<'a, R: Read + Seek> DbtReader<'a, R> {
             reader
         })
     }
-}
 
-impl<'a, R> MemoReader for DbtReader<'a, R>
-where R : Read + Seek {
     fn read_memo<T: FromMemo>(&mut self, index: u32) -> Result<T, Error> {
         let position = BLOCK_SIZE * (index as u64);
         self.reader.seek(SeekFrom::Start(position))?;
@@ -38,10 +36,15 @@ where R : Read + Seek {
     }
 }
 
+pub struct Dbt4Reader<'a, R: Read + Seek> {
+    next_block: u32,
+    reader: &'a mut R,
+}
+
 #[cfg(test)]
 mod tests {
     use std::io::Cursor;
-    use crate::memo::dbt::DbtReader;
+    use crate::memo::dbt::Dbt3Reader;
     use crate::memo::MemoReader;
 
     #[test]
@@ -52,7 +55,7 @@ mod tests {
         // version is at position 16
         file[16] = 3;
         let mut cursor = Cursor::new(&file);
-        let reader = DbtReader::new(&mut cursor)?;
+        let reader = Dbt3Reader::from_reader(&mut cursor)?;
 
         assert_eq!(1, reader.next_available_block());
 
@@ -73,7 +76,7 @@ mod tests {
         file[517] = 0x1a;
 
         let mut cursor = Cursor::new(&file);
-        let mut reader = DbtReader::new(&mut cursor)?;
+        let mut reader = Dbt3Reader::from_reader(&mut cursor)?;
         let content: String = reader.read_memo(1)?;
 
         assert_eq!("Hola", &content);
