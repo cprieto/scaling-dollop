@@ -1,6 +1,8 @@
 pub mod dbt;
 pub mod fpt;
 
+use std::fs::File;
+use std::io;
 use std::io::{Read, Seek};
 use crate::errors::Error;
 
@@ -26,6 +28,12 @@ impl FromMemo for Vec<u8> {
     fn from_memo(raw: Vec<u8>) -> Result<Self, Error> {
         Ok(raw)
     }
+}
+
+#[cfg(test)]
+fn sample_file(name: &str) -> io::Result<std::fs::File> {
+    let path = format!("{}/samples/{name}", env!("CARGO_MANIFEST_DIR"));
+    File::open(path)
 }
 
 #[cfg(test)]

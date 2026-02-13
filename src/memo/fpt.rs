@@ -43,16 +43,11 @@ impl<'a, R: Read + Seek> MemoReader<'a, R> for FptReader<'a, R> {
 mod tests {
     use std::fs::File;
     use crate::memo::fpt::FptReader;
-    use crate::memo::MemoReader;
-
-    fn sample_file() -> std::io::Result<File> {
-        let path = format!("{}/samples/foxpro_memo.fpt", env!("CARGO_MANIFEST_DIR"));
-        File::open(path)
-    }
+    use crate::memo::{sample_file, MemoReader};
 
     #[test]
     fn test_grab_next_block_from_fpt() -> anyhow::Result<()> {
-        let mut file = sample_file()?;
+        let mut file = sample_file("foxpro_memo.fpt")?;
         let reader = FptReader::from_reader(&mut file)?;
 
         assert_eq!(11, reader.next_available_block());
@@ -62,7 +57,7 @@ mod tests {
 
     #[test]
     fn test_can_read_text_from_fpt() -> anyhow::Result<()> {
-        let mut file = sample_file()?;
+        let mut file = sample_file("foxpro_memo.fpt")?;
         let mut reader = FptReader::from_reader(&mut file)?;
         let block_size = reader.block_size as u32;
         let next_block = reader.next_block;

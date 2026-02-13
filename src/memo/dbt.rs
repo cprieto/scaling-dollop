@@ -4,7 +4,7 @@ use crate::memo::{FromMemo, MemoReader};
 use crate::read_until_terminator;
 use byteorder::{LittleEndian, ReadBytesExt};
 
-const BLOCK_SIZE: u64 = 512;
+const BLOCK_SIZE: u32 = 512;
 
 struct Dbt3Reader<'a, R: Read + Seek> {
     next_block: u32,
@@ -24,7 +24,7 @@ where R : Read + Seek {
     }
 
     fn read_memo<T: FromMemo>(&mut self, index: u32) -> Result<T, Error> {
-        let position = BLOCK_SIZE * (index as u64);
+        let position = (BLOCK_SIZE as u64) * (index as u64);
         self.reader.seek(SeekFrom::Start(position))?;
         let data = read_until_terminator(&mut self.reader, &[0x1a, 0x1a])?;
 
@@ -38,14 +38,48 @@ where R : Read + Seek {
 
 pub struct Dbt4Reader<'a, R: Read + Seek> {
     next_block: u32,
+    block_size: u32,
     reader: &'a mut R,
+}
+
+impl<'a, R: Read + Seek> MemoReader<'a, R> for Dbt4Reader<'a, R> {
+    fn from_reader(reader: &'a mut R) -> Result<Self, Error>
+    where
+        Self: Sized
+    {
+        let next_block = reader.read_u32::<LittleEndian>()?;
+        reader.seek(SeekFrom::Start(20))?;
+        let block_size = reader.read_u16::<LittleEndian>()? as u32;
+
+        Ok(Self {
+            next_block,
+            block_size,
+            reader,
+        })
+    }
+
+    fn read_memo<T: FromMemo>(&mut self, index: u32) -> Result<T, Error> {
+        let position = (index * self.block_size) as u64;
+        self.reader.seek(SeekFrom::Start(position + 4))?;
+
+        // grab memo length, this is total length of the field!
+        let len = self.reader.read_u32::<LittleEndian>()? - 8;
+        let mut output = Vec::with_capacity(len as usize);
+        self.reader.take(len as u64).read_to_end(&mut output)?;
+
+        T::from_memo(output)
+    }
+
+    fn next_available_block(&self) -> u32 {
+        self.next_block
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use std::io::Cursor;
-    use crate::memo::dbt::Dbt3Reader;
-    use crate::memo::MemoReader;
+    use crate::memo::dbt::{Dbt3Reader, Dbt4Reader};
+    use crate::memo::{sample_file, MemoReader};
 
     #[test]
     fn test_simple_dbt_header() -> anyhow::Result<()> {
@@ -80,6 +114,37 @@ mod tests {
         let content: String = reader.read_memo(1)?;
 
         assert_eq!("Hola", &content);
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_open_dbt4_memo() -> anyhow::Result<()> {
+        let mut file = sample_file("db4_memo.dbt")?;
+        let reader = Dbt4Reader::from_reader(&mut file)?;
+
+        assert_eq!(512, reader.block_size);
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_dbt4_next_block() -> anyhow::Result<()> {
+        let mut file = sample_file("db4_memo.dbt")?;
+        let reader = Dbt4Reader::from_reader(&mut file)?;
+
+        assert_eq!(3, reader.next_block);
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_dbt4_read_memo() -> anyhow::Result<()> {
+        let mut file = sample_file("db4_memo.dbt")?;
+        let mut reader = Dbt4Reader::from_reader(&mut file)?;
+
+        let content: String = reader.read_memo(2)?;
+        assert_eq!("hello world!", &content);
 
         Ok(())
     }
