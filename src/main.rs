@@ -1,6 +1,6 @@
+use byteorder::{BigEndian, LittleEndian, ReadBytesExt};
 use std::fs::File;
 use std::io::{Cursor, Seek, SeekFrom};
-use byteorder::{BigEndian, LittleEndian, ReadBytesExt};
 
 fn main() -> anyhow::Result<()> {
     let mut file = File::open("FOXMEMO.FPT")?;

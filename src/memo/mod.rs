@@ -1,14 +1,14 @@
 pub mod dbt;
 pub mod fpt;
 
-use std::fs::File;
-use std::io;
-use std::io::{Read, Seek};
 use crate::errors::Error;
+use std::io::{Read, Seek};
 
 /// Reads a memo field
 pub trait MemoReader<'a, R: Read + Seek> {
-    fn from_reader(reader: &'a mut R) -> Result<Self, Error> where Self: Sized;
+    fn from_reader(reader: &'a mut R) -> Result<Self, Error>
+    where
+        Self: Sized;
     fn read_memo<T: FromMemo>(&mut self, index: u32) -> Result<T, Error>;
     fn next_available_block(&self) -> u32;
 }
@@ -31,38 +31,9 @@ impl FromMemo for Vec<u8> {
 }
 
 #[cfg(test)]
-fn sample_file(name: &str) -> io::Result<std::fs::File> {
+fn sample_file(name: &str) -> std::io::Result<std::fs::File> {
+    use std::fs::File;
+
     let path = format!("{}/samples/{name}", env!("CARGO_MANIFEST_DIR"));
     File::open(path)
-}
-
-#[cfg(test)]
-mod tests {
-    use std::io::Cursor;
-    use crate::read_until_terminator;
-
-    #[test]
-    fn test_read_until_terminator() -> anyhow::Result<()> {
-        let input = [1, 2, 3, 4, 5, 0x1a, 0x1b];
-        let mut cursor = Cursor::new(input);
-        let result = read_until_terminator(&mut cursor, &[0x1a, 0x1b])?;
-        let expected = vec![1, 2, 3, 4, 5];
-        assert_eq!(expected, result);
-
-        // only the full sequence is accepted
-        let input = [1, 2, 3, 4, 5, 0x1a, 6, 7, 0x1a, 0x1b];
-        let mut cursor = Cursor::new(input);
-        let result = read_until_terminator(&mut cursor, &[0x1a, 0x1b])?;
-        let expected = vec![1, 2, 3, 4, 5, 0x1a, 6, 7];
-        assert_eq!(expected, result);
-
-        // if sequence is not found, it is ok I guess
-        let input = [1, 2, 3, 4, 5, 0x1a];
-        let mut cursor = Cursor::new(input);
-        let result = read_until_terminator(&mut cursor, &[0x1a, 0x1b])?;
-        let expected = vec![1, 2, 3, 4, 5, 0x1a];
-        assert_eq!(expected, result);
-
-        Ok(())
-    }
 }

@@ -1,9 +1,9 @@
-use std::io::{Read, Seek, SeekFrom};
-use byteorder::{BigEndian, ReadBytesExt};
 use crate::errors::Error;
 use crate::memo::{FromMemo, MemoReader};
+use byteorder::{BigEndian, ReadBytesExt};
+use std::io::{Read, Seek, SeekFrom};
 
-struct FptReader<'a, R: Read + Seek> {
+pub struct FptReader<'a, R: Read + Seek> {
     reader: &'a mut R,
     block_size: u32,
     next_block: u32,
@@ -12,7 +12,8 @@ struct FptReader<'a, R: Read + Seek> {
 impl<'a, R: Read + Seek> MemoReader<'a, R> for FptReader<'a, R> {
     fn from_reader(reader: &'a mut R) -> Result<Self, Error> {
         let next_block = reader.read_u32::<BigEndian>()?;
-        let block_size = reader.read_u32::<BigEndian>()?;
+        reader.seek(SeekFrom::Current(2))?;
+        let block_size = reader.read_u16::<BigEndian>()? as u32;
 
         Ok(Self {
             reader,
@@ -22,16 +23,18 @@ impl<'a, R: Read + Seek> MemoReader<'a, R> for FptReader<'a, R> {
     }
 
     fn read_memo<T: FromMemo>(&mut self, index: u32) -> Result<T, Error> {
-        let position = self.block_size * index;
-        self.reader.seek(SeekFrom::Start(position as u64))?;
+        let position = (self.block_size as u64) * (index as u64);
+        self.reader.seek(SeekFrom::Start(position))?;
 
         let _record_type = self.reader.read_u32::<BigEndian>()?;
         let record_length = self.reader.read_u32::<BigEndian>()?;
 
         let mut data = Vec::with_capacity(record_length as usize);
-        self.reader.take(record_length as u64).read_to_end(&mut data)?;
+        self.reader
+            .take(record_length as u64)
+            .read_to_end(&mut data)?;
 
-        Ok(T::from_memo(data)?)
+        T::from_memo(data)
     }
 
     fn next_available_block(&self) -> u32 {
@@ -41,9 +44,8 @@ impl<'a, R: Read + Seek> MemoReader<'a, R> for FptReader<'a, R> {
 
 #[cfg(test)]
 mod tests {
-    use std::fs::File;
     use crate::memo::fpt::FptReader;
-    use crate::memo::{sample_file, MemoReader};
+    use crate::memo::{MemoReader, sample_file};
 
     #[test]
     fn test_grab_next_block_from_fpt() -> anyhow::Result<()> {

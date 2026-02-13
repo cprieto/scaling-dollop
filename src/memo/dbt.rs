@@ -1,26 +1,26 @@
-use std::io::{Read, Seek, SeekFrom};
 use crate::errors::Error;
+use crate::errors::Error::Conversion;
 use crate::memo::{FromMemo, MemoReader};
 use crate::read_until_terminator;
 use byteorder::{LittleEndian, ReadBytesExt};
+use std::io::{Read, Seek, SeekFrom};
 
 const BLOCK_SIZE: u32 = 512;
 
-struct Dbt3Reader<'a, R: Read + Seek> {
+pub struct Dbt3Reader<'a, R: Read + Seek> {
     next_block: u32,
     reader: &'a mut R,
 }
 
 impl<'a, R> MemoReader<'a, R> for Dbt3Reader<'a, R>
-where R : Read + Seek {
+where
+    R: Read + Seek,
+{
     fn from_reader(reader: &'a mut R) -> Result<Self, Error> {
         reader.seek(SeekFrom::Start(0))?;
         let next_block = reader.read_u32::<LittleEndian>()?;
 
-        Ok(Self {
-            next_block,
-            reader
-        })
+        Ok(Self { next_block, reader })
     }
 
     fn read_memo<T: FromMemo>(&mut self, index: u32) -> Result<T, Error> {
@@ -28,7 +28,7 @@ where R : Read + Seek {
         self.reader.seek(SeekFrom::Start(position))?;
         let data = read_until_terminator(&mut self.reader, &[0x1a, 0x1a])?;
 
-        Ok(T::from_memo(data)?)
+        T::from_memo(data)
     }
 
     fn next_available_block(&self) -> u32 {
@@ -45,7 +45,7 @@ pub struct Dbt4Reader<'a, R: Read + Seek> {
 impl<'a, R: Read + Seek> MemoReader<'a, R> for Dbt4Reader<'a, R> {
     fn from_reader(reader: &'a mut R) -> Result<Self, Error>
     where
-        Self: Sized
+        Self: Sized,
     {
         let next_block = reader.read_u32::<LittleEndian>()?;
         reader.seek(SeekFrom::Start(20))?;
@@ -63,9 +63,10 @@ impl<'a, R: Read + Seek> MemoReader<'a, R> for Dbt4Reader<'a, R> {
         self.reader.seek(SeekFrom::Start(position + 4))?;
 
         // grab memo length, this is total length of the field!
-        let len = self.reader.read_u32::<LittleEndian>()? - 8;
-        let mut output = Vec::with_capacity(len as usize);
-        self.reader.take(len as u64).read_to_end(&mut output)?;
+        let length = self.reader.read_u32::<LittleEndian>()?;
+        let length = length.checked_sub(8).ok_or(Conversion)?;
+        let mut output = Vec::with_capacity(length as usize);
+        self.reader.take(length as u64).read_to_end(&mut output)?;
 
         T::from_memo(output)
     }
@@ -77,9 +78,9 @@ impl<'a, R: Read + Seek> MemoReader<'a, R> for Dbt4Reader<'a, R> {
 
 #[cfg(test)]
 mod tests {
-    use std::io::Cursor;
     use crate::memo::dbt::{Dbt3Reader, Dbt4Reader};
-    use crate::memo::{sample_file, MemoReader};
+    use crate::memo::{MemoReader, sample_file};
+    use std::io::Cursor;
 
     #[test]
     fn test_simple_dbt_header() -> anyhow::Result<()> {
