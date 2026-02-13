@@ -4,7 +4,8 @@ use crate::errors::Error;
 
 /// Reads a memo field
 pub trait MemoReader {
-    fn read_memo<T: FromMemo>(&self, index: u32) -> Result<T, Error>;
+    fn read_memo<T: FromMemo>(&mut self, index: u32) -> Result<T, Error>;
+    fn next_available_block(&self) -> u32;
 }
 
 /// Represent a value from a memo field
