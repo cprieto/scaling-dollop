@@ -64,13 +64,47 @@ mod tests {
         let block_size = reader.block_size as u32;
         let next_block = reader.next_block;
 
-        assert_eq!(0x40, block_size);
+        // FPT has a block size of 64
+        assert_eq!(64, block_size);
+        // this means first block is at 8
         assert_eq!(0x0b, next_block);
 
         // we know we have data at block 10
         let text: String = reader.read_memo(10)?;
 
         assert_eq!("another memo field", &text);
+        Ok(())
+    }
+
+    #[test]
+    fn test_read_foxpro2_memo() -> anyhow::Result<()> {
+        let mut file = sample_file("foxpro2_memo.fpt")?;
+        let mut reader = FptReader::from_reader(&mut file)?;
+        let block_size = reader.block_size;
+
+        // FoxPro 2 has a 64 block size by default
+        // but header is still 512
+        assert_eq!(64, block_size);
+
+        // this means first block is at 8!
+        let text: String = reader.read_memo(8)?;
+        assert_eq!("this is a simple memo", text);
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_Read_visual_foxpro() -> anyhow::Result<()> {
+        let mut file = sample_file("vfp_memo.fpt")?;
+        let mut reader = FptReader::from_reader(&mut file)?;
+        let block_size = reader.block_size;
+
+        assert_eq!(64, block_size);
+
+        // first block
+        let text: String = reader.read_memo(8)?;
+        assert_eq!("hello world", text);
+
         Ok(())
     }
 }
