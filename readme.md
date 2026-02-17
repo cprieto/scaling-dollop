@@ -8,7 +8,6 @@ Well, right now only reading memo files (for DBase3, 4 and FoxPro).
 
 ## Things next
 
-- [ ] Builder for `MemoReader`
-- [ ] Check Visual FoxPro memo files
-- [ ] Check DBase 5 memo files
-- [ ] Start working in `MemoWriter`
+- [X] Check Visual FoxPro memo files
+- [X] Check DBase 5 memo files
+- [ ] Start parsing DBF!
