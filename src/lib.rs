@@ -1,6 +1,7 @@
 use byteorder::ReadBytesExt;
 use std::io::{ErrorKind, Read, Result as IOResult};
 
+pub mod dbf;
 pub mod errors;
 pub mod memo;
 

@@ -94,7 +94,7 @@ mod tests {
     }
 
     #[test]
-    fn test_Read_visual_foxpro() -> anyhow::Result<()> {
+    fn test_read_visual_foxpro() -> anyhow::Result<()> {
         let mut file = sample_file("vfp_memo.fpt")?;
         let mut reader = FptReader::from_reader(&mut file)?;
         let block_size = reader.block_size;
