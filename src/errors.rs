@@ -7,4 +7,6 @@ pub enum Error {
     Io(#[from] io::Error),
     #[error("unable to convert to type")]
     Conversion,
+    #[error("file format error: {0}")]
+    FileFormat(String),
 }
