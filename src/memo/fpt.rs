@@ -45,7 +45,8 @@ impl<'a, R: Read + Seek> MemoReader<'a, R> for FptReader<'a, R> {
 #[cfg(test)]
 mod tests {
     use crate::memo::fpt::FptReader;
-    use crate::memo::{MemoReader, sample_file};
+    use crate::memo::MemoReader;
+    use crate::sample_file;
 
     #[test]
     fn test_grab_next_block_from_fpt() -> anyhow::Result<()> {

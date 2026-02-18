@@ -26,3 +26,11 @@ fn read_until_terminator<R: Read>(reader: &mut R, delimiter: &[u8]) -> IOResult<
         }
     }
 }
+
+#[cfg(test)]
+fn sample_file(name: &str) -> std::io::Result<std::fs::File> {
+    use std::fs::File;
+
+    let path = format!("{}/samples/{name}", env!("CARGO_MANIFEST_DIR"));
+    File::open(path)
+}

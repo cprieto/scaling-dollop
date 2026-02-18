@@ -79,8 +79,9 @@ impl<'a, R: Read + Seek> MemoReader<'a, R> for Dbt4Reader<'a, R> {
 #[cfg(test)]
 mod tests {
     use crate::memo::dbt::{Dbt3Reader, Dbt4Reader};
-    use crate::memo::{MemoReader, sample_file};
+    use crate::memo::MemoReader;
     use std::io::Cursor;
+    use crate::sample_file;
 
     #[test]
     fn test_simple_dbt_header() -> anyhow::Result<()> {

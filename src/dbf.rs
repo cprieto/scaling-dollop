@@ -1,12 +1,14 @@
+#![allow(dead_code)]
+
 use crate::errors;
 use crate::errors::Error;
 use crate::errors::Error::FileFormat;
-use byteorder::ReadBytesExt;
+use byteorder::{LittleEndian, ReadBytesExt};
 use std::fmt::{Display, Formatter};
 use std::io::{Read, Seek, SeekFrom};
 use time::{Date, Month};
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 enum DbfVersion {
     Dbase,
     Dbase3WithMemo,
@@ -36,50 +38,137 @@ impl TryFrom<u8> for DbfVersion {
     }
 }
 
-struct DbfHeader {
+struct Header {
     version: DbfVersion,
     last_update: Date,
     num_records: u32,
-    start: u16,
+    record_start: u16,
     record_length: u16,
 }
 
-impl DbfHeader {
-    fn from_reader<T: Read + Seek>(reader: &mut T) -> Result<Self, Error> {
+pub struct DbfReader<'a, R: Read + Seek> {
+    reader: &'a mut R,
+    header: Header,
+}
+
+impl<'a, R: Read + Seek> DbfReader<'a, R> {
+    pub fn from_reader(reader: &'a mut R) -> Result<Self, Error> {
         reader.seek(SeekFrom::Start(0))?;
         let version = reader.read_u8()?;
         let version = DbfVersion::try_from(version)?;
-        let mut last_update = Vec::with_capacity(6);
-        reader.take(6).read_to_end(&mut last_update)?;
-        let last_update = parse_dbf_date(&last_update)?;
 
-        todo!()
+        let year = reader.read_u8()?;
+        let year = 1900 + (year as i32);
+
+        let month = reader.read_u8()?;
+        let month = Month::try_from(month)
+            .map_err(|_| FileFormat(format!("invalid month in file header: {month}")))?;
+
+        let day = reader.read_u8()?;
+
+        let last_update = Date::from_calendar_date(year, month, day)
+            .map_err(|_| FileFormat(format!("invalid date in header: {year}.{month}.{day}")))?;
+
+        let num_records = reader.read_u32::<LittleEndian>()?;
+
+        let record_start = reader.read_u16::<LittleEndian>()?;
+
+        let record_length = reader.read_u16::<LittleEndian>()?;
+
+        let header = Header {
+            version,
+            last_update,
+            num_records,
+            record_start,
+            record_length,
+        };
+
+        Ok(Self {
+            reader,
+            header,
+        })
     }
 }
 
-// TODO: this implementation is fishy, I have to check against files
-fn parse_dbf_date(s: &[u8]) -> Result<Date, Error> {
-    let date =
-        std::str::from_utf8(s).map_err(|_| FileFormat("invalid binary date in header".into()))?;
+enum FieldType {
+    // In DB3
+    Character,
+    Numeric,
+    Date,
+    Logical,
+    // In DB4, FoxPro
+    Float,
+}
 
-    let year = &date[0..4];
-    let year = year
-        .parse::<i32>()
-        .map_err(|_| FileFormat(format!("invalid year for date {year}")))?;
+struct Field {
+    name: String,
+    field_type: FieldType,
+}
 
-    let month = &date[4..6];
-    let month = month
-        .parse::<u8>()
-        .map_err(|_| FileFormat(format!("invalid month for date: {month}")))?;
+#[cfg(test)]
+mod tests {
+    use time::{Date, Month};
+    use crate::dbf::{DbfReader, DbfVersion};
+    use crate::sample_file;
 
-    let month = Month::try_from(month)
-        .map_err(|_| FileFormat(format!("invalid month for date: {month}")))?;
+    #[test]
+    fn dbase3_is_not_y2k_ready() -> anyhow::Result<()> {
+        let mut reader = sample_file("db3.dbf")?;
+        let dbf = DbfReader::from_reader(&mut reader)?;
 
-    let day = &date[6..8];
-    let day: u8 = date
-        .parse()
-        .map_err(|_| FileFormat(format!("invalid day for date: {day}")))?;
+        // dbase3 thinks is 1900!
+        assert_eq!(dbf.header.last_update, Date::from_calendar_date(1926, Month::February, 16)?);
 
-    Date::from_calendar_date(year, month, day)
-        .map_err(|err| FileFormat(format!("invalid date: {date}")))
+        let mut reader = sample_file("fox1.dbf")?;
+        let dbf = DbfReader::from_reader(&mut reader)?;
+        // same with FoxPro, they are broken :(
+        assert_eq!(dbf.header.last_update, Date::from_calendar_date(1926, Month::February, 18)?);
+
+        let mut reader = sample_file("db4.dbf")?;
+        let dbf = DbfReader::from_reader(&mut reader)?;
+
+        // dbase4 and later are ok
+        assert_eq!(dbf.header.last_update, Date::from_calendar_date(2026, Month::February, 16)?);
+
+        Ok(())
+    }
+
+    #[test]
+    fn dbase_are_all_dbase3() -> anyhow::Result<()> {
+        let mut reader = sample_file("db3.dbf")?;
+        let dbf = DbfReader::from_reader(&mut reader)?;
+
+        assert_eq!(DbfVersion::Dbase, dbf.header.version);
+
+        let mut reader = sample_file("db4.dbf")?;
+        let dbf = DbfReader::from_reader(&mut reader)?;
+
+        assert_eq!(DbfVersion::Dbase, dbf.header.version);
+
+        let mut reader = sample_file("db5.dbf")?;
+        let dbf = DbfReader::from_reader(&mut reader)?;
+
+        assert_eq!(DbfVersion::Dbase, dbf.header.version);
+
+        // same as FoxPro
+        let mut reader = sample_file("fox1.dbf")?;
+        let dbf = DbfReader::from_reader(&mut reader)?;
+
+        assert_eq!(DbfVersion::Dbase, dbf.header.version);
+
+
+        Ok(())
+    }
+
+    #[test]
+    fn other_header_properties() -> anyhow::Result<()> {
+        let mut reader = sample_file("db3.dbf")?;
+        let dbf = DbfReader::from_reader(&mut reader)?;
+
+        assert_eq!(8, dbf.header.num_records);
+        assert_eq!(0xC1, dbf.header.record_start);
+        assert_eq!(0x2E, dbf.header.record_length);
+
+        Ok(())
+    }
 }

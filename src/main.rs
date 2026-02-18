@@ -1,11 +1,15 @@
-use byteorder::ReadBytesExt;
 use std::fs::File;
+use std::io::{Read, Seek, SeekFrom};
 
 fn main() -> anyhow::Result<()> {
-    let mut file = File::open("samples/db4memo.dbf")?;
-    let signature = file.read_u8()?;
+    let mut file = File::open("samples/db3.dbf")?;
+    file.seek(SeekFrom::Start(32))?;
 
-    println!("signature: {signature:#04x}");
+    let mut name = Vec::new();
+    file.take(10).read_to_end(&mut name)?;
+    let name = String::from_utf8(name)?;
+
+    println!("field name: {name}");
 
     Ok(())
 }
