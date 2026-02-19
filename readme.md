@@ -11,3 +11,12 @@ Well, right now only reading memo files (for DBase3, 4 and FoxPro).
 - [X] Check Visual FoxPro memo files
 - [X] Check DBase 5 memo files
 - [ ] Start parsing DBF!
+
+## Sources
+
+There are a lot of places with different descriptions for DBF files:
+
+1. [XFile Format Description](http://www.manmrk.net/tutorials/database/xbase/#INDEX) this is probably the most complete guide out there
+2. [DBF File Format](https://www.dbf2002.com/dbf-file-format.html) from a DBF Viewer and editor, simple to read
+3. [DBF and DBT/FPT File Structure](https://www.independent-software.com/dbase-dbf-dbt-file-format.html) is a nice one with some comments and sample code
+
