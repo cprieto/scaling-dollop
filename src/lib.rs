@@ -5,7 +5,24 @@ pub mod dbf;
 pub mod errors;
 pub mod memo;
 
-fn read_until_terminator<R: Read>(reader: &mut R, delimiter: &[u8]) -> IOResult<Vec<u8>> {
+pub fn slice_until_terminator(input: &[u8], delimiter: &[u8]) -> Vec<u8> {
+    let mut output = vec![];
+    for &b in input {
+        output.push(b);
+        if output.len() < delimiter.len() {
+            continue;
+        }
+
+        let size = output.len() - delimiter.len();
+        if output[size..] == *delimiter {
+            output.truncate(size);
+            return output
+        }
+    }
+    output
+}
+
+fn reader_until_terminator<R: Read>(reader: &mut R, delimiter: &[u8]) -> IOResult<Vec<u8>> {
     assert!(!delimiter.is_empty(), "delimiter must not be empty");
 
     let mut output = vec![];

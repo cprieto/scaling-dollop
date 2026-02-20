@@ -1,7 +1,7 @@
 use crate::errors::Error;
 use crate::errors::Error::Conversion;
 use crate::memo::{FromMemo, MemoReader};
-use crate::read_until_terminator;
+use crate::reader_until_terminator;
 use byteorder::{LittleEndian, ReadBytesExt};
 use std::io::{Read, Seek, SeekFrom};
 
@@ -26,7 +26,7 @@ where
     fn read_memo<T: FromMemo>(&mut self, index: u32) -> Result<T, Error> {
         let position = (BLOCK_SIZE as u64) * (index as u64);
         self.reader.seek(SeekFrom::Start(position))?;
-        let data = read_until_terminator(&mut self.reader, &[0x1a, 0x1a])?;
+        let data = reader_until_terminator(&mut self.reader, &[0x1a, 0x1a])?;
 
         T::from_memo(data)
     }
