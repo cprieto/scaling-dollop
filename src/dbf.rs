@@ -1,41 +1,24 @@
 #![allow(dead_code)]
 
-use crate::errors;
 use crate::errors::Error;
 use crate::errors::Error::FileFormat;
 use byteorder::{LittleEndian, ReadBytesExt};
 use std::fmt::{Display, Formatter};
 use std::io::{Read, Seek, SeekFrom};
+use strum::FromRepr;
 use time::{Date, Month};
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, FromRepr)]
+#[repr(u8)]
 enum DbfVersion {
-    Dbase,
-    Dbase3WithMemo,
-    Dbase4WithMemo,
-}
-
-impl Display for DbfVersion {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        match self {
-            DbfVersion::Dbase => write!(f, "DBase without memo"),
-            DbfVersion::Dbase3WithMemo => write!(f, "DBase 3 with memo field"),
-            DbfVersion::Dbase4WithMemo => write!(f, "DBase 4,5 with memo field"),
-        }
-    }
-}
-
-impl TryFrom<u8> for DbfVersion {
-    type Error = errors::Error;
-
-    fn try_from(value: u8) -> Result<Self, Self::Error> {
-        match value {
-            0x03 => Ok(DbfVersion::Dbase),
-            0x83 => Ok(DbfVersion::Dbase3WithMemo),
-            0x8B => Ok(DbfVersion::Dbase4WithMemo),
-            _ => Err(Error::FileFormat(format!("unknown version: {value:#04x}"))),
-        }
-    }
+    #[strum(to_string = "DBase file without memo")]
+    Dbase = 0x03,
+    #[strum(to_string = "DBase 3 file with memo")]
+    Dbase3WithMemo = 0x83,
+    #[strum(to_string = "DBase 4/5 file with memo")]
+    Dbase4WithMemo = 0x8b,
+    #[strum(to_string = "FoxPro file with memo")]
+    FoxProWithMemo = 0xf5,
 }
 
 struct Header {
@@ -55,7 +38,8 @@ impl<'a, R: Read + Seek> DbfReader<'a, R> {
     pub fn from_reader(reader: &'a mut R) -> Result<Self, Error> {
         reader.seek(SeekFrom::Start(0))?;
         let version = reader.read_u8()?;
-        let version = DbfVersion::try_from(version)?;
+        let version = DbfVersion::from_repr(version)
+            .ok_or(FileFormat(format!("invalid file version: {version}")))?;
 
         let year = reader.read_u8()?;
         let year = 1900 + (year as i32);
