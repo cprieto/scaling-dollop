@@ -61,16 +61,27 @@ impl<R: Read + Seek> DbfReader<R> {
 
         let record_length = reader.read_u16::<LittleEndian>()?;
 
+        println!("record start: {:#x}", record_start);
+
         // Number of fields
         let num_fields = ((record_start - 1) / 32 - 1) as u64;
 
         const FIELD_START: u64 = 32;
-        let fields = (0..num_fields)
-            .map(|loc| {
-                reader.seek(SeekFrom::Start(FIELD_START + loc * 32))?;
-                Field::from_reader(&mut reader)
-            })
-            .collect::<Result<Vec<_>, _>>()?;
+        let mut fields = Vec::new();
+        for loc in 0..num_fields {
+            let pos = FIELD_START + FIELD_START * loc;
+            reader.seek(SeekFrom::Start(pos))?;
+
+            // maybe there are no more fields?
+            let terminator = reader.read_u8()?;
+            if terminator == 0x0d {
+                break;
+            }
+            reader.seek(SeekFrom::Current(-1))?;
+
+            let field = Field::from_reader(&mut reader)?;
+            fields.push(field);
+        }
 
         let header = Header {
             version,
