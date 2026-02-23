@@ -44,8 +44,8 @@ impl<'a, R: Read + Seek> MemoReader<'a, R> for FptReader<'a, R> {
 
 #[cfg(test)]
 mod tests {
-    use crate::memo::fpt::FptReader;
     use crate::memo::MemoReader;
+    use crate::memo::fpt::FptReader;
     use crate::sample_file;
 
     #[test]

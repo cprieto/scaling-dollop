@@ -16,7 +16,7 @@ pub fn slice_until_terminator(input: &[u8], delimiter: &[u8]) -> Vec<u8> {
         let size = output.len() - delimiter.len();
         if output[size..] == *delimiter {
             output.truncate(size);
-            return output
+            return output;
         }
     }
     output

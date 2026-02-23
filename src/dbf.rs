@@ -1,10 +1,10 @@
 #![allow(dead_code)]
 
-use crate::errors::Error;
 use crate::errors::Error::FileFormat;
+use crate::{errors::Error, slice_until_terminator};
 use byteorder::{LittleEndian, ReadBytesExt};
 use std::io::{Read, Seek, SeekFrom};
-use strum::FromRepr;
+use strum::{Display as SDisplay, FromRepr};
 use time::{Date, Month};
 
 #[derive(Debug, PartialEq, FromRepr)]
@@ -26,13 +26,14 @@ struct Header {
     version: DbfVersion,
     last_update: Date,
     num_records: u32,
-    pub record_start: u16,
+    record_start: u16,
     record_length: u16,
 }
 
 pub struct DbfReader<'a, R: Read + Seek> {
     reader: &'a mut R,
     header: Header,
+    fields: Vec<Field>,
 }
 
 impl<'a, R: Read + Seek> DbfReader<'a, R> {
@@ -60,6 +61,17 @@ impl<'a, R: Read + Seek> DbfReader<'a, R> {
 
         let record_length = reader.read_u16::<LittleEndian>()?;
 
+        // Number of fields
+        let num_fields = ((record_start - 1) / 32 - 1) as u64;
+
+        const FIELD_START: u64 = 32;
+        let fields = (0..num_fields)
+            .map(|loc| {
+                reader.seek(SeekFrom::Start(FIELD_START + loc * 32))?;
+                Field::from_reader(reader)
+            })
+            .collect::<Result<Vec<_>, _>>()?;
+
         let header = Header {
             version,
             last_update,
@@ -71,6 +83,7 @@ impl<'a, R: Read + Seek> DbfReader<'a, R> {
         Ok(Self {
             reader,
             header,
+            fields,
         })
     }
 
@@ -79,7 +92,7 @@ impl<'a, R: Read + Seek> DbfReader<'a, R> {
     }
 }
 
-#[derive(Debug, PartialEq, FromRepr)]
+#[derive(Debug, PartialEq, FromRepr, SDisplay)]
 #[repr(u8)]
 enum FieldType {
     // In DB3
@@ -92,15 +105,41 @@ enum FieldType {
 struct Field {
     name: String,
     field_type: FieldType,
-    size: u8,
+    length: u8,
     decimal: u8,
+}
+
+impl Field {
+    fn from_reader<R: Read + Seek>(reader: &mut R) -> Result<Self, Error> {
+        let mut name = [0u8; 11];
+        reader.read_exact(&mut name)?;
+
+        let name = slice_until_terminator(&name, &[0]);
+        let name = String::from_utf8_lossy(&name);
+
+        let field_type = reader.read_u8()?;
+        let field_type = FieldType::from_repr(field_type)
+            .ok_or(FileFormat(format!("invalid field type: {field_type}")))?;
+
+        reader.seek(SeekFrom::Current(4))?;
+        let length = reader.read_u8()?;
+
+        let decimal = reader.read_u8()?;
+
+        Ok(Self {
+            name: name.to_string(),
+            field_type,
+            length,
+            decimal,
+        })
+    }
 }
 
 #[cfg(test)]
 mod tests {
-    use time::{Date, Month};
     use crate::dbf::{DbfReader, DbfVersion};
     use crate::sample_file;
+    use time::{Date, Month};
 
     #[test]
     fn dbase3_is_not_y2k_ready() -> anyhow::Result<()> {
@@ -108,29 +147,47 @@ mod tests {
         let dbf = DbfReader::from_reader(&mut reader)?;
 
         // dbase3 thinks is 1900!
-        assert_eq!(dbf.header.last_update, Date::from_calendar_date(1926, Month::February, 23)?);
+        assert_eq!(
+            dbf.header.last_update,
+            Date::from_calendar_date(1926, Month::February, 23)?
+        );
 
         // same with FoxPro 1.0, 2.0 and even Visual FoxPro, they are broken :(
         let mut reader = sample_file("fox1.dbf")?;
         let dbf = DbfReader::from_reader(&mut reader)?;
-        assert_eq!(dbf.header.last_update, Date::from_calendar_date(1926, Month::February, 18)?);
+        assert_eq!(
+            dbf.header.last_update,
+            Date::from_calendar_date(1926, Month::February, 18)?
+        );
 
         let mut reader = sample_file("fox2.dbf")?;
         let dbf = DbfReader::from_reader(&mut reader)?;
-        assert_eq!(dbf.header.last_update, Date::from_calendar_date(1926, Month::February, 22)?);
+        assert_eq!(
+            dbf.header.last_update,
+            Date::from_calendar_date(1926, Month::February, 22)?
+        );
 
         let mut reader = sample_file("vfp.dbf")?;
         let dbf = DbfReader::from_reader(&mut reader)?;
-        assert_eq!(dbf.header.last_update, Date::from_calendar_date(1926, Month::February, 23)?);
+        assert_eq!(
+            dbf.header.last_update,
+            Date::from_calendar_date(1926, Month::February, 23)?
+        );
 
         // But with DB4 and after we are clean!
         let mut reader = sample_file("db4.dbf")?;
         let dbf = DbfReader::from_reader(&mut reader)?;
-        assert_eq!(dbf.header.last_update, Date::from_calendar_date(2026, Month::February, 16)?);
+        assert_eq!(
+            dbf.header.last_update,
+            Date::from_calendar_date(2026, Month::February, 16)?
+        );
 
         let mut reader = sample_file("db5.dbf")?;
         let dbf = DbfReader::from_reader(&mut reader)?;
-        assert_eq!(dbf.header.last_update, Date::from_calendar_date(2026, Month::February, 17)?);
+        assert_eq!(
+            dbf.header.last_update,
+            Date::from_calendar_date(2026, Month::February, 17)?
+        );
 
         Ok(())
     }
