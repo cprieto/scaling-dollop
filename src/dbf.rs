@@ -102,18 +102,29 @@ mod tests {
         let dbf = DbfReader::from_reader(&mut reader)?;
 
         // dbase3 thinks is 1900!
-        assert_eq!(dbf.header.last_update, Date::from_calendar_date(1926, Month::February, 16)?);
+        assert_eq!(dbf.header.last_update, Date::from_calendar_date(1926, Month::February, 23)?);
 
+        // same with FoxPro 1.0, 2.0 and even Visual FoxPro, they are broken :(
         let mut reader = sample_file("fox1.dbf")?;
         let dbf = DbfReader::from_reader(&mut reader)?;
-        // same with FoxPro, they are broken :(
         assert_eq!(dbf.header.last_update, Date::from_calendar_date(1926, Month::February, 18)?);
 
+        let mut reader = sample_file("fox2.dbf")?;
+        let dbf = DbfReader::from_reader(&mut reader)?;
+        assert_eq!(dbf.header.last_update, Date::from_calendar_date(1926, Month::February, 22)?);
+
+        let mut reader = sample_file("vfp.dbf")?;
+        let dbf = DbfReader::from_reader(&mut reader)?;
+        assert_eq!(dbf.header.last_update, Date::from_calendar_date(1926, Month::February, 23)?);
+
+        // But with DB4 and after we are clean!
         let mut reader = sample_file("db4.dbf")?;
         let dbf = DbfReader::from_reader(&mut reader)?;
-
-        // dbase4 and later are ok
         assert_eq!(dbf.header.last_update, Date::from_calendar_date(2026, Month::February, 16)?);
+
+        let mut reader = sample_file("db5.dbf")?;
+        let dbf = DbfReader::from_reader(&mut reader)?;
+        assert_eq!(dbf.header.last_update, Date::from_calendar_date(2026, Month::February, 17)?);
 
         Ok(())
     }
