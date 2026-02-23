@@ -1,13 +1,11 @@
-#![allow(dead_code)]
-
-use crate::errors::Error::FileFormat;
-use crate::{errors::Error, slice_until_terminator};
+use crate::SliceUntilTerminator;
+use crate::errors::Error::{self, FileFormat};
 use byteorder::{LittleEndian, ReadBytesExt};
 use std::io::{Read, Seek, SeekFrom};
 use strum::{Display as SDisplay, FromRepr};
 use time::{Date, Month};
 
-#[derive(Debug, PartialEq, FromRepr)]
+#[derive(Debug, PartialEq, FromRepr, SDisplay)]
 #[repr(u8)]
 enum DbfVersion {
     #[strum(to_string = "DBase file without memo")]
@@ -22,6 +20,7 @@ enum DbfVersion {
     VisualFoxPro = 0x30,
 }
 
+#[expect(dead_code)]
 struct Header {
     version: DbfVersion,
     last_update: Date,
@@ -30,14 +29,15 @@ struct Header {
     record_length: u16,
 }
 
-pub struct DbfReader<'a, R: Read + Seek> {
-    reader: &'a mut R,
+#[expect(dead_code)]
+pub struct DbfReader<R: Read + Seek> {
+    reader: R,
     header: Header,
     fields: Vec<Field>,
 }
 
-impl<'a, R: Read + Seek> DbfReader<'a, R> {
-    pub fn from_reader(reader: &'a mut R) -> Result<Self, Error> {
+impl<R: Read + Seek> DbfReader<R> {
+    pub fn from_reader(mut reader: R) -> Result<Self, Error> {
         reader.seek(SeekFrom::Start(0))?;
         let version = reader.read_u8()?;
         let version = DbfVersion::from_repr(version)
@@ -68,7 +68,7 @@ impl<'a, R: Read + Seek> DbfReader<'a, R> {
         let fields = (0..num_fields)
             .map(|loc| {
                 reader.seek(SeekFrom::Start(FIELD_START + loc * 32))?;
-                Field::from_reader(reader)
+                Field::from_reader(&mut reader)
             })
             .collect::<Result<Vec<_>, _>>()?;
 
@@ -86,10 +86,6 @@ impl<'a, R: Read + Seek> DbfReader<'a, R> {
             fields,
         })
     }
-
-    pub fn num_fields(&self) -> u16 {
-        (self.header.record_start - 1) / 32 - 1
-    }
 }
 
 #[derive(Debug, PartialEq, FromRepr, SDisplay)]
@@ -102,6 +98,7 @@ enum FieldType {
     Logical = 0x4c,
 }
 
+#[expect(dead_code)]
 struct Field {
     name: String,
     field_type: FieldType,
@@ -113,9 +110,8 @@ impl Field {
     fn from_reader<R: Read + Seek>(reader: &mut R) -> Result<Self, Error> {
         let mut name = [0u8; 11];
         reader.read_exact(&mut name)?;
-
-        let name = slice_until_terminator(&name, &[0]);
-        let name = String::from_utf8_lossy(&name);
+        let name = name.until_terminator(&[0]);
+        let name = String::from_utf8_lossy(name);
 
         let field_type = reader.read_u8()?;
         let field_type = FieldType::from_repr(field_type)
@@ -127,7 +123,7 @@ impl Field {
         let decimal = reader.read_u8()?;
 
         Ok(Self {
-            name: name.to_string(),
+            name: name.into_owned(),
             field_type,
             length,
             decimal,

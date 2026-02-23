@@ -1,22 +1,22 @@
+use crate::ReaderUntilTerminator;
 use crate::errors::Error;
 use crate::errors::Error::Conversion;
 use crate::memo::{FromMemo, MemoReader};
-use crate::reader_until_terminator;
 use byteorder::{LittleEndian, ReadBytesExt};
 use std::io::{Read, Seek, SeekFrom};
 
 const BLOCK_SIZE: u32 = 512;
 
-pub struct Dbt3Reader<'a, R: Read + Seek> {
+pub struct Dbt3Reader<R: Read + Seek> {
     next_block: u32,
-    reader: &'a mut R,
+    reader: R,
 }
 
-impl<'a, R> MemoReader<'a, R> for Dbt3Reader<'a, R>
+impl<R> MemoReader<R> for Dbt3Reader<R>
 where
     R: Read + Seek,
 {
-    fn from_reader(reader: &'a mut R) -> Result<Self, Error> {
+    fn from_reader(mut reader: R) -> Result<Self, Error> {
         reader.seek(SeekFrom::Start(0))?;
         let next_block = reader.read_u32::<LittleEndian>()?;
 
@@ -26,7 +26,7 @@ where
     fn read_memo<T: FromMemo>(&mut self, index: u32) -> Result<T, Error> {
         let position = (BLOCK_SIZE as u64) * (index as u64);
         self.reader.seek(SeekFrom::Start(position))?;
-        let data = reader_until_terminator(&mut self.reader, &[0x1a, 0x1a])?;
+        let data = self.reader.read_until_terminator(&[0x1a, 0x1a])?;
 
         T::from_memo(data)
     }
@@ -36,17 +36,18 @@ where
     }
 }
 
-pub struct Dbt4Reader<'a, R: Read + Seek> {
+pub struct Dbt4Reader<R: Read + Seek> {
     next_block: u32,
     block_size: u32,
-    reader: &'a mut R,
+    reader: R,
 }
 
-impl<'a, R: Read + Seek> MemoReader<'a, R> for Dbt4Reader<'a, R> {
-    fn from_reader(reader: &'a mut R) -> Result<Self, Error>
+impl<R: Read + Seek> MemoReader<R> for Dbt4Reader<R> {
+    fn from_reader(mut reader: R) -> Result<Self, Error>
     where
         Self: Sized,
     {
+        reader.seek(SeekFrom::Start(0))?;
         let next_block = reader.read_u32::<LittleEndian>()?;
         reader.seek(SeekFrom::Start(20))?;
         let block_size = reader.read_u16::<LittleEndian>()? as u32;
@@ -59,14 +60,17 @@ impl<'a, R: Read + Seek> MemoReader<'a, R> for Dbt4Reader<'a, R> {
     }
 
     fn read_memo<T: FromMemo>(&mut self, index: u32) -> Result<T, Error> {
-        let position = (index * self.block_size) as u64;
+        let position = index as u64 * self.block_size as u64;
         self.reader.seek(SeekFrom::Start(position + 4))?;
 
         // grab memo length, this is total length of the field!
         let length = self.reader.read_u32::<LittleEndian>()?;
         let length = length.checked_sub(8).ok_or(Conversion)?;
         let mut output = Vec::with_capacity(length as usize);
-        self.reader.take(length as u64).read_to_end(&mut output)?;
+        self.reader
+            .by_ref()
+            .take(length as u64)
+            .read_to_end(&mut output)?;
 
         T::from_memo(output)
     }

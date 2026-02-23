@@ -3,14 +3,14 @@ use crate::memo::{FromMemo, MemoReader};
 use byteorder::{BigEndian, ReadBytesExt};
 use std::io::{Read, Seek, SeekFrom};
 
-pub struct FptReader<'a, R: Read + Seek> {
-    reader: &'a mut R,
+pub struct FptReader<R: Read + Seek> {
+    reader: R,
     block_size: u32,
     next_block: u32,
 }
 
-impl<'a, R: Read + Seek> MemoReader<'a, R> for FptReader<'a, R> {
-    fn from_reader(reader: &'a mut R) -> Result<Self, Error> {
+impl<R: Read + Seek> MemoReader<R> for FptReader<R> {
+    fn from_reader(mut reader: R) -> Result<Self, Error> {
         let next_block = reader.read_u32::<BigEndian>()?;
         reader.seek(SeekFrom::Current(2))?;
         let block_size = reader.read_u16::<BigEndian>()? as u32;
@@ -27,11 +27,13 @@ impl<'a, R: Read + Seek> MemoReader<'a, R> for FptReader<'a, R> {
         self.reader.seek(SeekFrom::Start(position))?;
 
         let _record_type = self.reader.read_u32::<BigEndian>()?;
-        let record_length = self.reader.read_u32::<BigEndian>()?;
+        let record_length = self.reader.read_u32::<BigEndian>()? as u64;
 
         let mut data = Vec::with_capacity(record_length as usize);
+
         self.reader
-            .take(record_length as u64)
+            .by_ref()
+            .take(record_length)
             .read_to_end(&mut data)?;
 
         T::from_memo(data)
