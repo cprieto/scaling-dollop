@@ -3,7 +3,6 @@
 use crate::errors::Error;
 use crate::errors::Error::FileFormat;
 use byteorder::{LittleEndian, ReadBytesExt};
-use std::fmt::{Display, Formatter};
 use std::io::{Read, Seek, SeekFrom};
 use strum::FromRepr;
 use time::{Date, Month};
@@ -19,6 +18,8 @@ enum DbfVersion {
     Dbase4WithMemo = 0x8b,
     #[strum(to_string = "FoxPro file with memo")]
     FoxProWithMemo = 0xf5,
+    #[strum(to_string = "Visual FoxPro without memo")]
+    VisualFoxPro = 0x30,
 }
 
 struct Header {
@@ -121,25 +122,43 @@ mod tests {
     fn dbase_are_all_dbase3() -> anyhow::Result<()> {
         let mut reader = sample_file("db3.dbf")?;
         let dbf = DbfReader::from_reader(&mut reader)?;
-
         assert_eq!(DbfVersion::Dbase, dbf.header.version);
 
         let mut reader = sample_file("db4.dbf")?;
         let dbf = DbfReader::from_reader(&mut reader)?;
-
         assert_eq!(DbfVersion::Dbase, dbf.header.version);
 
         let mut reader = sample_file("db5.dbf")?;
         let dbf = DbfReader::from_reader(&mut reader)?;
-
         assert_eq!(DbfVersion::Dbase, dbf.header.version);
 
-        // same as FoxPro
+        // same as FoxPro 1.0
         let mut reader = sample_file("fox1.dbf")?;
         let dbf = DbfReader::from_reader(&mut reader)?;
-
         assert_eq!(DbfVersion::Dbase, dbf.header.version);
 
+        // and FoxPro 2.0
+        let mut reader = sample_file("fox2.dbf")?;
+        let dbf = DbfReader::from_reader(&mut reader)?;
+        assert_eq!(DbfVersion::Dbase, dbf.header.version);
+
+        Ok(())
+    }
+
+    #[test]
+    fn vfp_is_its_own_type() -> anyhow::Result<()> {
+        let mut reader = sample_file("vfp.dbf")?;
+        let dbf = DbfReader::from_reader(&mut reader)?;
+        assert_eq!(DbfVersion::VisualFoxPro, dbf.header.version);
+
+        Ok(())
+    }
+
+    #[test]
+    fn vfp_type_includes_memo() -> anyhow::Result<()> {
+        let mut reader = sample_file("vfpmemo.dbf")?;
+        let dbf = DbfReader::from_reader(&mut reader)?;
+        assert_eq!(DbfVersion::VisualFoxPro, dbf.header.version);
 
         Ok(())
     }

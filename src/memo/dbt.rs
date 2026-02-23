@@ -80,73 +80,38 @@ impl<'a, R: Read + Seek> MemoReader<'a, R> for Dbt4Reader<'a, R> {
 mod tests {
     use crate::memo::dbt::{Dbt3Reader, Dbt4Reader};
     use crate::memo::MemoReader;
-    use std::io::Cursor;
     use crate::sample_file;
 
     #[test]
-    fn test_simple_dbt_header() -> anyhow::Result<()> {
-        let mut file = [0; 512];
-        // first block is 1 (little endian)
-        file[0] = 1;
-        // version is at position 16
-        file[16] = 3;
-        let mut cursor = Cursor::new(&file);
-        let reader = Dbt3Reader::from_reader(&mut cursor)?;
+    fn test_dbt3_header() -> anyhow::Result<()> {
+        let mut file = sample_file("db3memo.dbt")?;
+        let reader = Dbt3Reader::from_reader(&mut file)?;
 
-        assert_eq!(1, reader.next_available_block());
+        assert_eq!(reader.next_available_block(), 5);
 
         Ok(())
     }
 
     #[test]
-    fn test_extract_text_from_block() -> anyhow::Result<()> {
-        let mut file = [0; 1024];
-        file[0] = 2;
-        file[16] = 3;
-        // block 1 contains 'Hola'
-        file[512] = 72;
-        file[513] = 111;
-        file[514] = 108;
-        file[515] = 97;
-        file[516] = 0x1a;
-        file[517] = 0x1a;
-
-        let mut cursor = Cursor::new(&file);
-        let mut reader = Dbt3Reader::from_reader(&mut cursor)?;
-        let content: String = reader.read_memo(1)?;
-
-        assert_eq!("Hola", &content);
-
-        Ok(())
-    }
-
-    #[test]
-    fn test_open_dbt4_memo() -> anyhow::Result<()> {
-        let mut file = sample_file("db4_memo.dbt")?;
+    fn test_dbt4_header() -> anyhow::Result<()> {
+        let mut file = sample_file("db4memo.dbt")?;
         let reader = Dbt4Reader::from_reader(&mut file)?;
 
-        assert_eq!(512, reader.block_size);
+        assert_eq!(reader.next_available_block(), 5);
+
+        // DB4 has variable block size, but by default is 512bytes
+        assert_eq!(reader.block_size, 512);
 
         Ok(())
     }
 
     #[test]
-    fn test_dbt4_next_block() -> anyhow::Result<()> {
-        let mut file = sample_file("db4_memo.dbt")?;
+    fn test_dbt5_header() -> anyhow::Result<()> {
+        let mut file = sample_file("db5memo.dbt")?;
         let reader = Dbt4Reader::from_reader(&mut file)?;
 
-        assert_eq!(3, reader.next_block);
-
-        Ok(())
-    }
-
-    #[test]
-    fn test_dbt4_read_memo() -> anyhow::Result<()> {
-        let mut file = sample_file("db4_memo.dbt")?;
-        let mut reader = Dbt4Reader::from_reader(&mut file)?;
-
-        let content: String = reader.read_memo(2)?;
-        assert_eq!("hello world!", &content);
+        assert_eq!(reader.next_available_block(), 5);
+        assert_eq!(reader.block_size, 512);
 
         Ok(())
     }

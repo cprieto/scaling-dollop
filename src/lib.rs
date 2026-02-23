@@ -22,7 +22,7 @@ pub fn slice_until_terminator(input: &[u8], delimiter: &[u8]) -> Vec<u8> {
     output
 }
 
-fn reader_until_terminator<R: Read>(reader: &mut R, delimiter: &[u8]) -> IOResult<Vec<u8>> {
+pub fn reader_until_terminator<R: Read>(reader: &mut R, delimiter: &[u8]) -> IOResult<Vec<u8>> {
     assert!(!delimiter.is_empty(), "delimiter must not be empty");
 
     let mut output = vec![];
