@@ -36,6 +36,8 @@ pub struct DbfReader<R: Read + Seek> {
     fields: Vec<Field>,
 }
 
+const FIELD_START: u64 = 32;
+
 impl<R: Read + Seek> DbfReader<R> {
     pub fn from_reader(mut reader: R) -> Result<Self, Error> {
         reader.seek(SeekFrom::Start(0))?;
@@ -61,14 +63,9 @@ impl<R: Read + Seek> DbfReader<R> {
 
         let record_length = reader.read_u16::<LittleEndian>()?;
 
-        println!("record start: {:#x}", record_start);
-
-        // Number of fields
-        let num_fields = ((record_start - 1) / 32 - 1) as u64;
-
-        const FIELD_START: u64 = 32;
         let mut fields = Vec::new();
-        for loc in 0..num_fields {
+        let mut loc = 0;
+        loop {
             let pos = FIELD_START + FIELD_START * loc;
             reader.seek(SeekFrom::Start(pos))?;
 
@@ -81,6 +78,7 @@ impl<R: Read + Seek> DbfReader<R> {
 
             let field = Field::from_reader(&mut reader)?;
             fields.push(field);
+            loc += 1;
         }
 
         let header = Header {
