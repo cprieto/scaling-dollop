@@ -26,7 +26,7 @@ struct Header {
     version: DbfVersion,
     last_update: Date,
     num_records: u32,
-    record_start: u16,
+    pub record_start: u16,
     record_length: u16,
 }
 
@@ -73,21 +73,27 @@ impl<'a, R: Read + Seek> DbfReader<'a, R> {
             header,
         })
     }
+
+    pub fn num_fields(&self) -> u16 {
+        (self.header.record_start - 1) / 32 - 1
+    }
 }
 
+#[derive(Debug, PartialEq, FromRepr)]
+#[repr(u8)]
 enum FieldType {
     // In DB3
-    Character,
-    Numeric,
-    Date,
-    Logical,
-    // In DB4, FoxPro
-    Float,
+    Character = 0x43,
+    Numeric = 0x4e,
+    Date = 0x44,
+    Logical = 0x4c,
 }
 
 struct Field {
     name: String,
     field_type: FieldType,
+    size: u8,
+    decimal: u8,
 }
 
 #[cfg(test)]
