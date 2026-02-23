@@ -11,7 +11,8 @@ Well, right now only reading memo files (for DBase3, 4 and FoxPro).
 - [X] Check Visual FoxPro memo files
 - [X] Check DBase 5 memo files
 - [X] Move DBT/FPT tests so they use the same memo files for other tests
-- [ ] Start parsing DBF!
+- [ ] Return fields
+- [ ] Parse and return rows!
 
 ## Sources
 
