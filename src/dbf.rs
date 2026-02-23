@@ -20,7 +20,7 @@ enum DbfVersion {
     VisualFoxPro = 0x30,
 }
 
-#[expect(dead_code)]
+#[cfg_attr(not(test), expect(dead_code))]
 struct Header {
     version: DbfVersion,
     last_update: Date,
@@ -182,12 +182,12 @@ mod tests {
             Date::from_calendar_date(1926, Month::February, 22)?
         );
 
-        // let mut reader = sample_file("vfp.dbf")?;
-        // let dbf = DbfReader::from_reader(&mut reader)?;
-        // assert_eq!(
-        //     dbf.header.last_update,
-        //     Date::from_calendar_date(1926, Month::February, 23)?
-        // );
+        let mut reader = sample_file("vfp.dbf")?;
+        let dbf = DbfReader::from_reader(&mut reader)?;
+        assert_eq!(
+            dbf.header.last_update,
+            Date::from_calendar_date(1926, Month::February, 23)?
+        );
 
         // But with DB4 and after we are clean!
         let mut reader = sample_file("db4.dbf")?;
@@ -235,7 +235,7 @@ mod tests {
     }
 
     #[test]
-    #[ignore = "Fix Visual FoxPro parsing"]
+    //#[ignore = "Fix Visual FoxPro parsing"]
     fn vfp_is_its_own_type() -> anyhow::Result<()> {
         let mut reader = sample_file("vfp.dbf")?;
         let dbf = DbfReader::from_reader(&mut reader)?;
@@ -245,7 +245,6 @@ mod tests {
     }
 
     #[test]
-    #[ignore = "Fix Visual FoxPro parsing"]
     fn vfp_type_includes_memo() -> anyhow::Result<()> {
         let mut reader = sample_file("vfpmemo.dbf")?;
         let dbf = DbfReader::from_reader(&mut reader)?;
