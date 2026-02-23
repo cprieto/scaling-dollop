@@ -5,7 +5,7 @@ pub mod dbf;
 pub mod errors;
 pub mod memo;
 
-pub trait SliceUntilTerminator<'a> {
+trait SliceUntilTerminator<'a> {
     fn until_terminator(&'a self, delimiter: &[u8]) -> &'a [u8];
 }
 
