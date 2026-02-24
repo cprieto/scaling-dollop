@@ -29,7 +29,8 @@ struct Header {
     record_length: u16,
 }
 
-#[expect(dead_code)]
+/// A DBF table reader
+/// used to get fields and rows from a DBF
 pub struct DbfReader<R: Read + Seek> {
     reader: R,
     header: Header,
@@ -37,8 +38,10 @@ pub struct DbfReader<R: Read + Seek> {
 }
 
 const FIELD_START: u64 = 32;
+const FIELD_SIZE: u64 = 32;
 
 impl<R: Read + Seek> DbfReader<R> {
+    /// Creates a DBF parser from a reader
     pub fn from_reader(mut reader: R) -> Result<Self, Error> {
         reader.seek(SeekFrom::Start(0))?;
         let version = reader.read_u8()?;
@@ -66,7 +69,7 @@ impl<R: Read + Seek> DbfReader<R> {
         let mut fields = Vec::new();
         let mut loc = 0;
         loop {
-            let pos = FIELD_START + FIELD_START * loc;
+            let pos = FIELD_START + FIELD_SIZE * loc;
             reader.seek(SeekFrom::Start(pos))?;
 
             // maybe there are no more fields?
@@ -74,8 +77,8 @@ impl<R: Read + Seek> DbfReader<R> {
             if terminator == 0x0d {
                 break;
             }
-            reader.seek(SeekFrom::Current(-1))?;
 
+            reader.seek(SeekFrom::Start(pos))?;
             let field = Field::from_reader(&mut reader)?;
             fields.push(field);
             loc += 1;
@@ -95,32 +98,33 @@ impl<R: Read + Seek> DbfReader<R> {
             fields,
         })
     }
+
+    /// Fields defined in this DBF table
+    pub fn fields(&self) -> &[Field] {
+        &self.fields
+    }
 }
 
-#[derive(Debug, PartialEq, FromRepr, SDisplay)]
-#[repr(u8)]
-enum FieldType {
-    // In DBase 3
-    Character = 0x43,
-    Numeric = 0x4e,
-    Date = 0x44,
-    Logical = 0x4c,
-    Memo = 0x4d,
-    // DBase 4
-    Float = 0x46,
+/// The field (column) type and its constraints
+#[derive(Clone, Copy)]
+pub enum FieldType {
+    Character(u8),
+    Numeric { size: u8, decimal: u8 },
+    Float { size: u8, decimal: u8 },
+    Date,
+    Logical,
+    Memo,
     // Visual FoxPro
-    Integer = 0x49,
-    Currency = 0x59,
-    Double = 0x42,
-    DateTime = 0x54,
+    Integer,
+    Currency,
+    DateTime,
+    Double,
 }
 
-#[expect(dead_code)]
-struct Field {
+/// A field (column) defined in a given DBF table
+pub struct Field {
     name: String,
     field_type: FieldType,
-    length: u8,
-    decimal: u8,
 }
 
 impl Field {
@@ -131,20 +135,53 @@ impl Field {
         let name = String::from_utf8_lossy(name);
 
         let field_type = reader.read_u8()?;
-        let field_type = FieldType::from_repr(field_type)
-            .ok_or(FileFormat(format!("invalid field type: {field_type}")))?;
-
         reader.seek(SeekFrom::Current(4))?;
-        let length = reader.read_u8()?;
 
-        let decimal = reader.read_u8()?;
+        let field_type = match field_type {
+            0x43 => {
+                // Read length
+                let length = reader.read_u8()?;
+                FieldType::Character(length)
+            }
+            what @ (0x4e | 0x46) => {
+                // Read length and decimal places
+                let size = reader.read_u8()?;
+                let decimal = reader.read_u8()?;
+                if what == 0x4e {
+                    FieldType::Numeric { size, decimal }
+                } else {
+                    FieldType::Float { size, decimal }
+                }
+            }
+            0x44 => FieldType::Date,
+            0x4c => FieldType::Logical,
+            0x4d => FieldType::Memo,
+            0x49 => FieldType::Integer,
+            0x42 => FieldType::Double,
+            0x59 => FieldType::Currency,
+            0x54 => FieldType::DateTime,
+            _ => return Err(FileFormat(format!("invalid field type: {field_type}"))),
+        };
+
+        // While Field info is 32 bytes, we don't have much
+        // to read for now, it has more info like autoincrement,
+        // indices, etc...
 
         Ok(Self {
             name: name.into_owned(),
             field_type,
-            length,
-            decimal,
         })
+    }
+
+    /// Returns the name for this field (column)
+    /// names are limited to 11 ASCII characters
+    pub fn name(&self) -> &str {
+        &self.name
+    }
+
+    /// Returns the field type for this field (column)
+    pub fn field_type(&self) -> FieldType {
+        self.field_type
     }
 }
 
@@ -233,7 +270,6 @@ mod tests {
     }
 
     #[test]
-    //#[ignore = "Fix Visual FoxPro parsing"]
     fn vfp_is_its_own_type() -> anyhow::Result<()> {
         let mut reader = sample_file("vfp.dbf")?;
         let dbf = DbfReader::from_reader(&mut reader)?;
@@ -259,6 +295,17 @@ mod tests {
         assert_eq!(8, dbf.header.num_records);
         assert_eq!(0xC1, dbf.header.record_start);
         assert_eq!(0x2E, dbf.header.record_length);
+
+        Ok(())
+    }
+
+    #[test]
+    fn read_field_types() -> anyhow::Result<()> {
+        let mut reader = sample_file("db3.dbf")?;
+        let dbf = DbfReader::from_reader(&mut reader)?;
+
+        let fields = dbf.fields();
+        assert_eq!(5, fields.len());
 
         Ok(())
     }

@@ -26,6 +26,7 @@ impl<R: Read + Seek> MemoReader<R> for FptReader<R> {
         let position = (self.block_size as u64) * (index as u64);
         self.reader.seek(SeekFrom::Start(position))?;
 
+        // for now we don't use record type, we will support different types later
         let _record_type = self.reader.read_u32::<BigEndian>()?;
         let record_length = self.reader.read_u32::<BigEndian>()? as u64;
 
