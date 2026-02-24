@@ -109,7 +109,13 @@ impl<R: Read + Seek> DbfReader<R> {
     /// this includes deleted rows
     /// only one iterator at a time!
     pub fn rows(&mut self) -> Rows<'_, R> {
-        Rows { reader: &mut self.reader, fields: self.fields.clone() }
+        Rows {
+            reader: &mut self.reader,
+            fields: self.fields.clone(),
+            record_start: self.header.record_start,
+            record_size: self.header.record_length,
+            current: 0,
+        }
     }
 }
 
@@ -208,19 +214,20 @@ pub enum Value {
     Null,
 }
 
-
 /// Represent a row in a DBF file
 pub struct Row {
     fields: Arc<Vec<Field>>,
 }
 
-
-pub struct Rows<'a, R: Read+Seek> {
+pub struct Rows<'a, R: Read + Seek> {
     reader: &'a mut R,
+    record_size: u16,
+    record_start: u16,
     fields: Arc<Vec<Field>>,
+    current: usize,
 }
 
-impl<'a, R: Read+Seek> Iterator for Rows<'a, R> {
+impl<'a, R: Read + Seek> Iterator for Rows<'a, R> {
     type Item = Row;
 
     fn next(&mut self) -> Option<Self::Item> {
