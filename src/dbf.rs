@@ -2,6 +2,7 @@ use crate::SliceUntilTerminator;
 use crate::errors::Error::{self, FileFormat};
 use byteorder::{LittleEndian, ReadBytesExt};
 use std::io::{Read, Seek, SeekFrom};
+use std::sync::Arc;
 use strum::{Display as SDisplay, FromRepr};
 use time::{Date, Month};
 
@@ -34,7 +35,7 @@ struct Header {
 pub struct DbfReader<R: Read + Seek> {
     reader: R,
     header: Header,
-    fields: Vec<Field>,
+    fields: Arc<Vec<Field>>,
 }
 
 const FIELD_START: u64 = 32;
@@ -95,13 +96,20 @@ impl<R: Read + Seek> DbfReader<R> {
         Ok(Self {
             reader,
             header,
-            fields,
+            fields: Arc::new(fields),
         })
     }
 
     /// Fields defined in this DBF table
     pub fn fields(&self) -> &[Field] {
         &self.fields
+    }
+
+    /// Returns iterator to rows in the DBF table
+    /// this includes deleted rows
+    /// only one iterator at a time!
+    pub fn rows(&mut self) -> Rows<'_, R> {
+        Rows { reader: &mut self.reader, fields: self.fields.clone() }
     }
 }
 
@@ -182,6 +190,41 @@ impl Field {
     /// Returns the field type for this field (column)
     pub fn field_type(&self) -> FieldType {
         self.field_type
+    }
+}
+
+/// A value contained in a field for a row
+pub enum Value {
+    Character(String),
+    Numeric(f64),
+    Float(f64),
+    Date(time::Date),
+    Logical(bool),
+    Memo(String),
+    Integer(i32),
+    Currency(f64),
+    DateTime(time::PrimitiveDateTime),
+    Double(f64),
+    Null,
+}
+
+
+/// Represent a row in a DBF file
+pub struct Row {
+    fields: Arc<Vec<Field>>,
+}
+
+
+pub struct Rows<'a, R: Read+Seek> {
+    reader: &'a mut R,
+    fields: Arc<Vec<Field>>,
+}
+
+impl<'a, R: Read+Seek> Iterator for Rows<'a, R> {
+    type Item = Row;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        todo!()
     }
 }
 
