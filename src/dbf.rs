@@ -69,6 +69,7 @@ impl<R: Read + Seek> DbfReader<R> {
 
         let mut fields = Vec::new();
         let mut loc = 0;
+        let mut displacement = 0;
         loop {
             let pos = FIELD_START + FIELD_SIZE * loc;
             reader.seek(SeekFrom::Start(pos))?;
@@ -80,8 +81,10 @@ impl<R: Read + Seek> DbfReader<R> {
             }
 
             reader.seek(SeekFrom::Start(pos))?;
-            let field = Field::from_reader(&mut reader)?;
+            let field = Field::new(&mut reader, displacement)?;
+            displacement += field.size();
             fields.push(field);
+
             loc += 1;
         }
 
@@ -132,17 +135,18 @@ pub enum FieldType {
     Integer,
     Currency,
     DateTime,
-    Double,
+    Double { decimal: u8 },
 }
 
 /// A field (column) defined in a given DBF table
 pub struct Field {
     name: String,
+    offset: u16,
     field_type: FieldType,
 }
 
 impl Field {
-    fn from_reader<R: Read + Seek>(reader: &mut R) -> Result<Self, Error> {
+    fn new<R: Read + Seek>(reader: &mut R, offset: u16) -> Result<Self, Error> {
         let mut name = [0u8; 11];
         reader.read_exact(&mut name)?;
         let name = name.until_terminator(&[0]);
@@ -171,7 +175,7 @@ impl Field {
             0x4c => FieldType::Logical,
             0x4d => FieldType::Memo,
             0x49 => FieldType::Integer,
-            0x42 => FieldType::Double,
+            0x42 => FieldType::Double { decimal: 0 },
             0x59 => FieldType::Currency,
             0x54 => FieldType::DateTime,
             _ => return Err(FileFormat(format!("invalid field type: {field_type}"))),
@@ -183,6 +187,7 @@ impl Field {
 
         Ok(Self {
             name: name.into_owned(),
+            offset,
             field_type,
         })
     }
@@ -196,6 +201,21 @@ impl Field {
     /// Returns the field type for this field (column)
     pub fn field_type(&self) -> FieldType {
         self.field_type
+    }
+
+    pub fn size(&self) -> u16 {
+        match self.field_type {
+            FieldType::Character(size) => size as u16,
+            FieldType::Numeric { size, decimal } => size as u16 + decimal as u16,
+            FieldType::Float { size, decimal } => size as u16 + decimal as u16,
+            FieldType::Date => 8,
+            FieldType::Logical => 1,
+            FieldType::Memo => 10,
+            FieldType::Integer => 4,
+            FieldType::Double { .. } => 8,
+            FieldType::Currency => 8,
+            FieldType::DateTime => 8,
+        }
     }
 }
 
@@ -217,6 +237,7 @@ pub enum Value {
 /// Represent a row in a DBF file
 pub struct Row {
     fields: Arc<Vec<Field>>,
+    data: Vec<u8>,
 }
 
 pub struct Rows<'a, R: Read + Seek> {
