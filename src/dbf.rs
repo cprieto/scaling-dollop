@@ -69,7 +69,7 @@ impl<R: Read + Seek> DbfReader<R> {
 
         let mut fields = Vec::new();
         let mut loc = 0;
-        let mut displacement = 0;
+        let mut offset = 0;
         loop {
             let pos = FIELD_START + FIELD_SIZE * loc;
             reader.seek(SeekFrom::Start(pos))?;
@@ -81,8 +81,8 @@ impl<R: Read + Seek> DbfReader<R> {
             }
 
             reader.seek(SeekFrom::Start(pos))?;
-            let field = Field::new(&mut reader, displacement)?;
-            displacement += field.size();
+            let field = Field::new(&mut reader, offset)?;
+            offset += field.size();
             fields.push(field);
 
             loc += 1;
@@ -161,12 +161,14 @@ impl Field {
                 let length = reader.read_u8()?;
                 FieldType::Character(length)
             }
-            what @ (0x4e | 0x46) => {
+            what @ (0x4e | 0x42 | 0x46) => {
                 // Read length and decimal places
                 let size = reader.read_u8()?;
                 let decimal = reader.read_u8()?;
                 if what == 0x4e {
                     FieldType::Numeric { size, decimal }
+                } else if what == 0x42 {
+                    FieldType::Double { decimal }
                 } else {
                     FieldType::Float { size, decimal }
                 }
@@ -175,7 +177,6 @@ impl Field {
             0x4c => FieldType::Logical,
             0x4d => FieldType::Memo,
             0x49 => FieldType::Integer,
-            0x42 => FieldType::Double { decimal: 0 },
             0x59 => FieldType::Currency,
             0x54 => FieldType::DateTime,
             _ => return Err(FileFormat(format!("invalid field type: {field_type}"))),
