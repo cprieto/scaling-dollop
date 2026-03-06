@@ -1,6 +1,5 @@
 use std::io;
 use thiserror::Error;
-use crate::dbf::FieldType;
 
 #[derive(Error, Debug)]
 pub enum Error {

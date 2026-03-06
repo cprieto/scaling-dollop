@@ -1,10 +1,10 @@
 use crate::SliceUntilTerminator;
-use crate::errors::Error::{self, FileFormat, Fieldvalue, NotSupported};
+use crate::errors::Error::{self, Fieldvalue, FileFormat, NotSupported};
 use byteorder::{LittleEndian, ReadBytesExt};
+use rust_decimal::Decimal;
 use std::io::{Read, Seek, SeekFrom};
 use std::str::FromStr;
 use std::sync::Arc;
-use rust_decimal::Decimal;
 use strum::{Display as SDisplay, FromRepr};
 use time::{Date, Month};
 
@@ -224,6 +224,7 @@ impl Field {
 }
 
 /// A value contained in a field for a row
+#[derive(PartialEq, Debug)]
 pub enum Value {
     Character(String),
     Numeric(Decimal),
@@ -246,8 +247,7 @@ pub struct Row {
 
 #[inline]
 fn to_text(bytes: &[u8]) -> Result<&str, Error> {
-    std::str::from_utf8(bytes)
-        .map_err(|_| Fieldvalue("invalid field value for text".into()))
+    std::str::from_utf8(bytes).map_err(|_| Fieldvalue("invalid field value for text".into()))
 }
 
 impl Row {
@@ -277,7 +277,7 @@ impl Row {
                     let text = text.trim_ascii_end();
                     Value::Character(text.to_owned())
                 }
-            },
+            }
             FieldType::Numeric { decimal, .. } => {
                 if self.data[start..end].iter().all(|char| *char == 0x20) {
                     Value::Null
@@ -285,12 +285,13 @@ impl Row {
                     let text = to_text(&self.data[start..end])?;
                     let text = text.trim_ascii_start();
 
-                    let mut number = Decimal::from_str(text).map_err(|_| Fieldvalue(format!("invalid decimal value: {text}")))?;
+                    let mut number = Decimal::from_str(text)
+                        .map_err(|_| Fieldvalue(format!("invalid decimal value: {text}")))?;
                     number.rescale(decimal as u32);
 
                     Value::Numeric(number)
                 }
-            },
+            }
             FieldType::Logical => {
                 let byte = &self.data[start];
                 match byte {
@@ -299,21 +300,30 @@ impl Row {
                     0x3f => Value::Null,
                     _ => return Err(Fieldvalue(format!("invalid logical: 0x{byte}"))),
                 }
-            },
+            }
             FieldType::Date => {
                 if self.data[start..end].iter().all(|char| *char == 0x20) {
                     Value::Null
                 } else {
                     let text = to_text(&self.data[start..end])?;
 
-                    let year = text[0..4].parse::<i32>().map_err(|_| Fieldvalue(format!("invalid date {}", &text[0..4])))?;
-                    let month = text[4..6].parse::<u8>().ok().and_then(|month| Month::try_from(month).ok()).ok_or(Fieldvalue(format!("invalid date {}", &text[4..6])))?;
-                    let day = text[6..8].parse::<u8>().map_err(|_| Fieldvalue(format!("invalid date: {}", &text[6..8])))?;
-                    let date = Date::from_calendar_date(year, month, day).map_err(|_| Fieldvalue(format!("invalid date: {text}")))?;
+                    let year = text[0..4]
+                        .parse::<i32>()
+                        .map_err(|_| Fieldvalue(format!("invalid date {}", &text[0..4])))?;
+                    let month = text[4..6]
+                        .parse::<u8>()
+                        .ok()
+                        .and_then(|month| Month::try_from(month).ok())
+                        .ok_or(Fieldvalue(format!("invalid date {}", &text[4..6])))?;
+                    let day = text[6..8]
+                        .parse::<u8>()
+                        .map_err(|_| Fieldvalue(format!("invalid date: {}", &text[6..8])))?;
+                    let date = Date::from_calendar_date(year, month, day)
+                        .map_err(|_| Fieldvalue(format!("invalid date: {text}")))?;
 
                     Value::Date(date)
                 }
-            },
+            }
             FieldType::Memo => return Err(NotSupported),
             // DBF4...
             FieldType::Float { .. } => todo!(),
@@ -338,25 +348,45 @@ pub struct Rows<'a, R: Read + Seek> {
     record_size: u16,
     record_start: u16,
     fields: Arc<Vec<Field>>,
-    current: usize,
+    current: u32,
     total: u32,
 }
 
 impl<'a, R: Read + Seek> Iterator for Rows<'a, R> {
-    type Item = Row;
+    type Item = Result<Row, Error>;
 
     fn next(&mut self) -> Option<Self::Item> {
-        todo!()
+        if self.current >= self.total {
+            return None;
+        }
+        let position = (self.record_start as u32) + (self.record_size as u32) * self.current;
+        if let Err(err) = self.reader.seek(SeekFrom::Start(position as u64)) {
+            return Some(Err(err.into()));
+        }
+
+        let mut data = vec![0u8; self.record_size as usize];
+        if let Err(err) = self.reader.read_exact(&mut data) {
+            return Some(Err(err.into()));
+        }
+
+        self.current += 1;
+
+        let row = Row {
+            fields: self.fields.clone(),
+            data,
+        };
+
+        Some(Ok(row))
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use std::str::FromStr;
-    use std::sync::Arc;
-    use rust_decimal::Decimal;
     use crate::dbf::{DbfReader, DbfVersion, Field, FieldType, Row, Value};
     use crate::sample_file;
+    use rust_decimal::Decimal;
+    use std::str::FromStr;
+    use std::sync::Arc;
     use time::{Date, Month};
 
     #[test]
@@ -480,31 +510,44 @@ mod tests {
 
     #[test]
     fn parsing_row_data() -> anyhow::Result<()> {
-        let fields = vec![Field {
-            name: "NAME".to_string(),
-            offset: 1,
-            field_type: FieldType::Character(20),
-        }, Field {
-            name: "PRICE".to_string(),
-            offset: 21,
-            field_type: FieldType::Numeric {size: 10, decimal: 2},
-        }, Field {
-            name: "QTY".to_string(),
-            offset: 31,
-            field_type: FieldType::Numeric {size: 6, decimal: 0},
-        }, Field {
-            name: "ACTIVE".to_string(),
-            offset: 37,
-            field_type: FieldType::Logical,
-        }, Field {
-            name: "ADDED".to_string(),
-            offset: 38,
-            field_type: FieldType::Date,
-        }];
+        let fields = vec![
+            Field {
+                name: "NAME".to_string(),
+                offset: 1,
+                field_type: FieldType::Character(20),
+            },
+            Field {
+                name: "PRICE".to_string(),
+                offset: 21,
+                field_type: FieldType::Numeric {
+                    size: 10,
+                    decimal: 2,
+                },
+            },
+            Field {
+                name: "QTY".to_string(),
+                offset: 31,
+                field_type: FieldType::Numeric {
+                    size: 6,
+                    decimal: 0,
+                },
+            },
+            Field {
+                name: "ACTIVE".to_string(),
+                offset: 37,
+                field_type: FieldType::Logical,
+            },
+            Field {
+                name: "ADDED".to_string(),
+                offset: 38,
+                field_type: FieldType::Date,
+            },
+        ];
         let data: [u8; 0x2E] = [
-            0x20, 0x57, 0x69, 0x64, 0x67, 0x65, 0x74, 0x20, 0x50, 0x72, 0x6F, 0x20, 0x20, 0x20, 0x20, 0x20,
-            0x20, 0x20, 0x20, 0x20, 0x20, 0x20, 0x20, 0x20, 0x20, 0x20, 0x32, 0x39, 0x2E, 0x39, 0x39, 0x20,
-            0x20, 0x20, 0x31, 0x35, 0x30, 0x54, 0x31, 0x39, 0x32, 0x35, 0x30, 0x31, 0x31, 0x35,
+            0x20, 0x57, 0x69, 0x64, 0x67, 0x65, 0x74, 0x20, 0x50, 0x72, 0x6F, 0x20, 0x20, 0x20,
+            0x20, 0x20, 0x20, 0x20, 0x20, 0x20, 0x20, 0x20, 0x20, 0x20, 0x20, 0x20, 0x32, 0x39,
+            0x2E, 0x39, 0x39, 0x20, 0x20, 0x20, 0x31, 0x35, 0x30, 0x54, 0x31, 0x39, 0x32, 0x35,
+            0x30, 0x31, 0x31, 0x35,
         ];
 
         let row = Row {
@@ -516,13 +559,15 @@ mod tests {
 
         // Getting a date works
         let date = row.get("ADDED")?;
-        assert!(matches!(date, Value::Date(d) if d == Date::from_calendar_date(1925, Month::January, 15)?));
+        assert!(
+            matches!(date, Value::Date(d) if d == Date::from_calendar_date(1925, Month::January, 15)?)
+        );
 
         let active = row.get("ACTIVE")?;
         assert!(matches!(active, Value::Logical(l) if l));
 
         let name = row.get("NAME")?;
-        assert!(matches!(name, Value::Character(s) if s == String::from("Widget Pro")));
+        assert!(matches!(name, Value::Character(s) if s == "Widget Pro"));
 
         let price = row.get("PRICE")?;
         assert!(matches!(price, Value::Numeric(n) if n == Decimal::from_str("29.99")?));
@@ -540,7 +585,46 @@ mod tests {
 
         // uppercase or lowercase is ok
         let name = row.get("name")?;
-        assert!(matches!(name, Value::Character(s) if s == String::from("Widget Pro")));
+        assert!(matches!(name, Value::Character(s) if s == "Widget Pro"));
+
+        Ok(())
+    }
+
+    #[test]
+    fn read_rows() -> anyhow::Result<()> {
+        let mut reader = sample_file("db3.dbf")?;
+        let mut dbf = DbfReader::from_reader(&mut reader)?;
+
+        let mut rows = dbf.rows();
+        // we can read two rows
+        let row = rows.next();
+        assert!(matches!(row, Some(Ok(_))));
+
+        let row = rows.next();
+        assert!(matches!(row, Some(Ok(_))));
+
+        // let's restart and grab all rows
+        let mut records = vec![];
+        for item in dbf.rows() {
+            let item = item?;
+            let value = item.get("NAME")?;
+
+            records.push(value);
+        }
+
+        let expected = vec![
+            Value::Character("Widget Pro".to_string()),
+            Value::Character("Gadget Mini".to_string()),
+            Value::Character("Thingamajig".to_string()),
+            Value::Character("Doohickey XL".to_string()),
+            Value::Character("Sprocket S".to_string()),
+            Value::Character("Old Product".to_string()),
+            Value::Character("Broken Item".to_string()),
+            // At the end of this file, there is an empty record
+            Value::Null,
+        ];
+
+        assert_eq!(expected, records);
 
         Ok(())
     }
