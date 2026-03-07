@@ -2,14 +2,10 @@ pub mod dbt;
 pub mod fpt;
 
 use crate::errors::Error;
-use std::io::{Read, Seek};
 
 /// Reads a memo field
-pub trait MemoReader<R: Read + Seek> {
-    fn from_reader(reader: R) -> Result<Self, Error>
-    where
-        Self: Sized;
-    fn read_memo<T: FromMemo>(&mut self, index: u32) -> Result<T, Error>;
+pub trait MemoRead {
+    fn read_memo(&mut self, index: u32) -> Result<Vec<u8>, Error>;
     fn next_available_block(&self) -> u32;
 }
 

@@ -2,6 +2,7 @@ use crate::dbf::header::{DbfVersion, Field, Header};
 use crate::dbf::row::Rows;
 use crate::errors::Error;
 use crate::errors::Error::FileFormat;
+use crate::memo::MemoRead;
 use byteorder::{LittleEndian, ReadBytesExt};
 use std::io::{Read, Seek, SeekFrom};
 use std::sync::Arc;
@@ -11,6 +12,7 @@ use time::{Date, Month};
 /// used to get fields and rows from a DBF
 pub struct DbfReader<R: Read + Seek> {
     reader: R,
+    memo: Option<Box<dyn MemoRead>>,
     header: Header,
     fields: Arc<Vec<Field>>,
 }
@@ -76,8 +78,15 @@ impl<R: Read + Seek> DbfReader<R> {
         Ok(Self {
             reader,
             header,
+            memo: None,
             fields: Arc::new(fields),
         })
+    }
+
+    /// Sets a memo reader for memo fields
+    pub fn with_memo(mut self, memo: impl MemoRead + 'static) -> Self {
+        self.memo = Some(Box::new(memo));
+        self
     }
 
     /// Fields defined in this DBF table

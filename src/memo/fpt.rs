@@ -1,5 +1,5 @@
 use crate::errors::Error;
-use crate::memo::{FromMemo, MemoReader};
+use crate::memo::MemoRead;
 use byteorder::{BigEndian, ReadBytesExt};
 use std::io::{Read, Seek, SeekFrom};
 
@@ -9,8 +9,8 @@ pub struct FptReader<R: Read + Seek> {
     next_block: u32,
 }
 
-impl<R: Read + Seek> MemoReader<R> for FptReader<R> {
-    fn from_reader(mut reader: R) -> Result<Self, Error> {
+impl<R: Read + Seek> FptReader<R> {
+    pub fn from_reader(mut reader: R) -> Result<Self, Error> {
         let next_block = reader.read_u32::<BigEndian>()?;
         reader.seek(SeekFrom::Current(2))?;
         let block_size = reader.read_u16::<BigEndian>()? as u32;
@@ -21,8 +21,10 @@ impl<R: Read + Seek> MemoReader<R> for FptReader<R> {
             block_size,
         })
     }
+}
 
-    fn read_memo<T: FromMemo>(&mut self, index: u32) -> Result<T, Error> {
+impl<R: Read + Seek> MemoRead for FptReader<R> {
+    fn read_memo(&mut self, index: u32) -> Result<Vec<u8>, Error> {
         let position = (self.block_size as u64) * (index as u64);
         self.reader.seek(SeekFrom::Start(position))?;
 
@@ -37,7 +39,7 @@ impl<R: Read + Seek> MemoReader<R> for FptReader<R> {
             .take(record_length)
             .read_to_end(&mut data)?;
 
-        T::from_memo(data)
+        Ok(data)
     }
 
     fn next_available_block(&self) -> u32 {
@@ -47,7 +49,7 @@ impl<R: Read + Seek> MemoReader<R> for FptReader<R> {
 
 #[cfg(test)]
 mod tests {
-    use crate::memo::MemoReader;
+    use crate::memo::MemoRead;
     use crate::memo::fpt::FptReader;
     use crate::sample_file;
 

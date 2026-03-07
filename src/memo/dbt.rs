@@ -1,7 +1,7 @@
 use crate::ReaderUntilTerminator;
 use crate::errors::Error;
 use crate::errors::Error::Conversion;
-use crate::memo::{FromMemo, MemoReader};
+use crate::memo::MemoRead;
 use byteorder::{LittleEndian, ReadBytesExt};
 use std::io::{Read, Seek, SeekFrom};
 
@@ -12,23 +12,22 @@ pub struct Dbt3Reader<R: Read + Seek> {
     reader: R,
 }
 
-impl<R> MemoReader<R> for Dbt3Reader<R>
-where
-    R: Read + Seek,
-{
-    fn from_reader(mut reader: R) -> Result<Self, Error> {
+impl<R: Read + Seek> Dbt3Reader<R> {
+    pub fn from_reader(mut reader: R) -> Result<Self, Error> {
         reader.seek(SeekFrom::Start(0))?;
         let next_block = reader.read_u32::<LittleEndian>()?;
 
         Ok(Self { next_block, reader })
     }
+}
 
-    fn read_memo<T: FromMemo>(&mut self, index: u32) -> Result<T, Error> {
+impl<R: Read + Seek> MemoRead for Dbt3Reader<R> {
+    fn read_memo(&mut self, index: u32) -> Result<Vec<u8>, Error> {
         let position = (BLOCK_SIZE as u64) * (index as u64);
         self.reader.seek(SeekFrom::Start(position))?;
         let data = self.reader.read_until_terminator(&[0x1a, 0x1a])?;
 
-        T::from_memo(data)
+        Ok(data)
     }
 
     fn next_available_block(&self) -> u32 {
@@ -42,8 +41,8 @@ pub struct Dbt4Reader<R: Read + Seek> {
     reader: R,
 }
 
-impl<R: Read + Seek> MemoReader<R> for Dbt4Reader<R> {
-    fn from_reader(mut reader: R) -> Result<Self, Error>
+impl<R: Read + Seek> Dbt4Reader<R> {
+    pub fn from_reader(mut reader: R) -> Result<Self, Error>
     where
         Self: Sized,
     {
@@ -58,8 +57,10 @@ impl<R: Read + Seek> MemoReader<R> for Dbt4Reader<R> {
             reader,
         })
     }
+}
 
-    fn read_memo<T: FromMemo>(&mut self, index: u32) -> Result<T, Error> {
+impl<R: Read + Seek> MemoRead for Dbt4Reader<R> {
+    fn read_memo(&mut self, index: u32) -> Result<Vec<u8>, Error> {
         let position = index as u64 * self.block_size as u64;
         self.reader.seek(SeekFrom::Start(position + 4))?;
 
@@ -72,7 +73,7 @@ impl<R: Read + Seek> MemoReader<R> for Dbt4Reader<R> {
             .take(length as u64)
             .read_to_end(&mut output)?;
 
-        T::from_memo(output)
+        Ok(output)
     }
 
     fn next_available_block(&self) -> u32 {
@@ -82,7 +83,7 @@ impl<R: Read + Seek> MemoReader<R> for Dbt4Reader<R> {
 
 #[cfg(test)]
 mod tests {
-    use crate::memo::MemoReader;
+    use crate::memo::MemoRead;
     use crate::memo::dbt::{Dbt3Reader, Dbt4Reader};
     use crate::sample_file;
 
