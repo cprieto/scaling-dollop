@@ -234,7 +234,7 @@ impl<'a, R: Read + Seek> Iterator for Rows<'a, R> {
 #[cfg(test)]
 mod tests {
     use crate::dbf::header::{Field, FieldType};
-    use crate::dbf::row::{Row, Value};
+    use crate::dbf::rows::{Row, Value};
     use rust_decimal::Decimal;
     use rust_decimal::prelude::FromPrimitive;
     use std::str::FromStr;
