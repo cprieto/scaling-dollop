@@ -1,4 +1,4 @@
-use scaling_dollop::dbf::DbfReader;
+use scaling_dollop::dbf::reader::DbfReader;
 use std::fs::File;
 
 fn main() -> anyhow::Result<()> {
@@ -6,12 +6,7 @@ fn main() -> anyhow::Result<()> {
 
     let reader = DbfReader::from_reader(file)?;
     for field in reader.fields() {
-        println!(
-            "{}: {}, {:?}",
-            field.name(),
-            field.offset,
-            field.field_type()
-        );
+        println!("{}: {:?}", field.name(), field.field_type());
     }
 
     Ok(())
