@@ -1,12 +1,13 @@
 use crate::SliceUntilTerminator;
 use crate::errors::Error::{self, Fieldvalue, FileFormat, NotSupported};
-use byteorder::{LittleEndian, ReadBytesExt};
+use byteorder::{BigEndian, LittleEndian, ReadBytesExt};
 use rust_decimal::Decimal;
-use std::io::{Read, Seek, SeekFrom};
+use rust_decimal::prelude::FromPrimitive;
+use std::io::{Cursor, Read, Seek, SeekFrom};
 use std::str::FromStr;
 use std::sync::Arc;
 use strum::{Display as SDisplay, FromRepr};
-use time::{Date, Month};
+use time::{Date, Month, PrimitiveDateTime, Time};
 
 #[derive(Debug, PartialEq, FromRepr, SDisplay)]
 #[repr(u8)]
@@ -113,10 +114,11 @@ impl<R: Read + Seek> DbfReader<R> {
     /// Returns iterator to rows in the DBF table
     /// this includes deleted rows
     /// only one iterator at a time!
+    #[must_use]
     pub fn rows(&mut self) -> Rows<'_, R> {
         Rows {
             reader: &mut self.reader,
-            fields: self.fields.clone(),
+            fields: Arc::clone(&self.fields),
             record_start: self.header.record_start,
             record_size: self.header.record_length,
             current: 0,
@@ -144,7 +146,7 @@ pub enum FieldType {
 /// A field (column) defined in a given DBF table
 pub struct Field {
     name: String,
-    offset: u16,
+    pub offset: u16,
     field_type: FieldType,
 }
 
@@ -233,7 +235,7 @@ pub enum Value {
     Logical(bool),
     Memo(String),
     Integer(i32),
-    Currency(f64),
+    Currency(Decimal),
     DateTime(time::PrimitiveDateTime),
     Double(f64),
     Null,
@@ -271,26 +273,24 @@ impl Row {
         let value = match field.field_type {
             FieldType::Character(_) => {
                 if self.data[start..end].iter().all(|char| *char == 0x20) {
-                    Value::Null
-                } else {
-                    let text = to_text(&self.data[start..end])?;
-                    let text = text.trim_ascii_end();
-                    Value::Character(text.to_owned())
+                    return Ok(Value::Null);
                 }
+                let text = to_text(&self.data[start..end])?;
+                let text = text.trim_ascii_end();
+                Value::Character(text.to_owned())
             }
             FieldType::Numeric { decimal, .. } => {
                 if self.data[start..end].iter().all(|char| *char == 0x20) {
-                    Value::Null
-                } else {
-                    let text = to_text(&self.data[start..end])?;
-                    let text = text.trim_ascii_start();
-
-                    let mut number = Decimal::from_str(text)
-                        .map_err(|_| Fieldvalue(format!("invalid decimal value: {text}")))?;
-                    number.rescale(decimal as u32);
-
-                    Value::Numeric(number)
+                    return Ok(Value::Null);
                 }
+                let text = to_text(&self.data[start..end])?;
+                let text = text.trim_ascii_start();
+
+                let mut number = Decimal::from_str(text)
+                    .map_err(|_| Fieldvalue(format!("invalid decimal value: {text}")))?;
+                number.rescale(decimal as u32);
+
+                Value::Numeric(number)
             }
             FieldType::Logical => {
                 let byte = &self.data[start];
@@ -303,35 +303,84 @@ impl Row {
             }
             FieldType::Date => {
                 if self.data[start..end].iter().all(|char| *char == 0x20) {
-                    Value::Null
-                } else {
-                    let text = to_text(&self.data[start..end])?;
-
-                    let year = text[0..4]
-                        .parse::<i32>()
-                        .map_err(|_| Fieldvalue(format!("invalid date {}", &text[0..4])))?;
-                    let month = text[4..6]
-                        .parse::<u8>()
-                        .ok()
-                        .and_then(|month| Month::try_from(month).ok())
-                        .ok_or(Fieldvalue(format!("invalid date {}", &text[4..6])))?;
-                    let day = text[6..8]
-                        .parse::<u8>()
-                        .map_err(|_| Fieldvalue(format!("invalid date: {}", &text[6..8])))?;
-                    let date = Date::from_calendar_date(year, month, day)
-                        .map_err(|_| Fieldvalue(format!("invalid date: {text}")))?;
-
-                    Value::Date(date)
+                    return Ok(Value::Null);
                 }
+                let text = to_text(&self.data[start..end])?;
+
+                let year = text[0..4]
+                    .parse::<i32>()
+                    .map_err(|_| Fieldvalue(format!("invalid date {}", &text[0..4])))?;
+                let month = text[4..6]
+                    .parse::<u8>()
+                    .ok()
+                    .and_then(|month| Month::try_from(month).ok())
+                    .ok_or(Fieldvalue(format!("invalid date {}", &text[4..6])))?;
+                let day = text[6..8]
+                    .parse::<u8>()
+                    .map_err(|_| Fieldvalue(format!("invalid date: {}", &text[6..8])))?;
+                let date = Date::from_calendar_date(year, month, day)
+                    .map_err(|_| Fieldvalue(format!("invalid date: {text}")))?;
+
+                Value::Date(date)
             }
             FieldType::Memo => return Err(NotSupported),
             // DBF4...
-            FieldType::Float { .. } => todo!(),
+            FieldType::Float { .. } => {
+                if self.data[start..end].iter().all(|char| *char == 0x20) {
+                    return Ok(Value::Null);
+                }
+                
+                let text = to_text(&self.data[start..end])?;
+                let text = text.trim_ascii_start();
+                let value = text
+                    .parse::<f64>()
+                    .map_err(|_| Fieldvalue(format!("invalid float: {text}")))?;
+
+                Value::Float(value)
+            }
             // VFP
-            FieldType::Integer => todo!(),
-            FieldType::Currency => todo!(),
-            FieldType::DateTime => todo!(),
-            FieldType::Double { .. } => todo!(),
+            FieldType::Integer => {
+                let mut cursor = Cursor::new(&self.data[start..end]);
+                let value = cursor.read_i32::<LittleEndian>()?;
+
+                Value::Integer(value)
+            }
+            FieldType::Currency => {
+                let mut cursor = Cursor::new(&self.data[start..end]);
+
+                let value = cursor.read_i64::<LittleEndian>()?;
+                let value = Decimal::new(value, 4);
+
+                Value::Currency(value)
+            }
+            FieldType::DateTime => {
+                let mut cursor = Cursor::new(&self.data[start..end]);
+                let days = cursor.read_u32::<LittleEndian>()?;
+                let millis = cursor.read_u32::<LittleEndian>()?;
+
+                if days == 0 && millis == 0 {
+                    return Ok(Value::Null);
+                }
+
+                let date = Date::from_julian_day(days as i32)
+                    .map_err(|_| Fieldvalue(format!("invalid days in gregorian: {days}")))?;
+
+                let hour = (millis / 3_600_000) as u8;
+                let min = ((millis % 3_600_000) / 60_000) as u8;
+                let sec = ((millis % 60_000) / 1_000) as u8;
+                let ms = (millis % 1_000) as u16;
+
+                let time = Time::from_hms_milli(hour, min, sec, ms)
+                    .map_err(|_| Fieldvalue(format!("invalid time: {hour}:{min}:{sec}:{ms}")))?;
+
+                Value::DateTime(PrimitiveDateTime::new(date, time))
+            }
+            FieldType::Double { .. } => {
+                let mut cursor = Cursor::new(&self.data[start..end]);
+                let value = cursor.read_f64::<LittleEndian>()?;
+
+                Value::Double(value)
+            }
         };
 
         Ok(value)
@@ -359,7 +408,9 @@ impl<'a, R: Read + Seek> Iterator for Rows<'a, R> {
         if self.current >= self.total {
             return None;
         }
-        let position = (self.record_start as u32) + (self.record_size as u32) * self.current;
+        let position =
+            (self.record_start as u64) + (self.record_size as u64) * (self.current as u64);
+        self.current += 1;
         if let Err(err) = self.reader.seek(SeekFrom::Start(position as u64)) {
             return Some(Err(err.into()));
         }
@@ -369,10 +420,8 @@ impl<'a, R: Read + Seek> Iterator for Rows<'a, R> {
             return Some(Err(err.into()));
         }
 
-        self.current += 1;
-
         let row = Row {
-            fields: self.fields.clone(),
+            fields: Arc::clone(&self.fields),
             data,
         };
 
@@ -385,9 +434,10 @@ mod tests {
     use crate::dbf::{DbfReader, DbfVersion, Field, FieldType, Row, Value};
     use crate::sample_file;
     use rust_decimal::Decimal;
+    use rust_decimal::prelude::FromPrimitive;
     use std::str::FromStr;
     use std::sync::Arc;
-    use time::{Date, Month};
+    use time::{Date, Month, PrimitiveDateTime, Time};
 
     #[test]
     fn dbase3_is_not_y2k_ready() -> anyhow::Result<()> {
@@ -591,7 +641,7 @@ mod tests {
     }
 
     #[test]
-    fn read_rows() -> anyhow::Result<()> {
+    fn read_rows_dbf() -> anyhow::Result<()> {
         let mut reader = sample_file("db3.dbf")?;
         let mut dbf = DbfReader::from_reader(&mut reader)?;
 
@@ -625,6 +675,107 @@ mod tests {
         ];
 
         assert_eq!(expected, records);
+
+        Ok(())
+    }
+
+    #[test]
+    fn read_rows_vfp() -> anyhow::Result<()> {
+        let data: [u8; 0x55] = [
+            0x20, 0x01, 0x00, 0x00, 0x00, 0x57, 0x69, 0x64, 0x67, 0x65, 0x74, 0x20, 0x50, 0x72,
+            0x6F, 0x20, 0x20, 0x20, 0x20, 0x20, 0x20, 0x20, 0x20, 0x20, 0x20, 0x20, 0x20, 0x20,
+            0x20, 0x20, 0x32, 0x39, 0x2E, 0x39, 0x39, 0x78, 0x5D, 0x02, 0x00, 0x00, 0x00, 0x00,
+            0x00, 0x20, 0x20, 0x20, 0x31, 0x35, 0x30, 0x20, 0x20, 0x20, 0x20, 0x30, 0x2E, 0x33,
+            0x35, 0x30, 0x30, 0x03, 0x09, 0x8A, 0x1F, 0x63, 0xEE, 0xDE, 0x3F, 0x54, 0x31, 0x39,
+            0x32, 0x35, 0x30, 0x31, 0x31, 0x35, 0x66, 0xFD, 0x24, 0x00, 0x40, 0xC8, 0x40, 0x02,
+            0x20,
+        ];
+
+        let fields = vec![
+            Field {
+                name: "ID".to_string(),
+                offset: 1,
+                field_type: FieldType::Integer,
+            },
+            Field {
+                name: "NAME".to_string(),
+                offset: 5,
+                field_type: FieldType::Character(20),
+            },
+            Field {
+                name: "PRICE".to_string(),
+                offset: 25,
+                field_type: FieldType::Numeric {
+                    size: 10,
+                    decimal: 2,
+                },
+            },
+            Field {
+                name: "COST".to_string(),
+                offset: 35,
+                field_type: FieldType::Currency,
+            },
+            Field {
+                name: "QTY".to_string(),
+                offset: 43,
+                field_type: FieldType::Numeric {
+                    size: 6,
+                    decimal: 0,
+                },
+            },
+            Field {
+                name: "WEIGHT".to_string(),
+                offset: 49,
+                field_type: FieldType::Numeric {
+                    size: 6,
+                    decimal: 0,
+                },
+            },
+            Field {
+                name: "MARGIN".to_string(),
+                offset: 59,
+                field_type: FieldType::Double { decimal: 4 },
+            },
+            Field {
+                name: "ACTIVE".to_string(),
+                offset: 67,
+                field_type: FieldType::Logical,
+            },
+            Field {
+                name: "ADDED".to_string(),
+                offset: 68,
+                field_type: FieldType::Date,
+            },
+            Field {
+                name: "UPDATED".to_string(),
+                offset: 76,
+                field_type: FieldType::DateTime,
+            },
+        ];
+
+        let row = Row {
+            fields: Arc::new(fields),
+            data: data.to_vec(),
+        };
+
+        assert_eq!(10, row.fields.len());
+
+        assert_eq!(Value::Integer(1), row.get("ID")?);
+
+        assert_eq!(
+            Value::Currency(Decimal::from_f64(15.5000).unwrap()),
+            row.get("COST")?
+        );
+
+        assert_eq!(Value::Double(0.4833), row.get("MARGIN")?);
+
+        // VFP is fucked up with dates as well
+        let date = Date::from_calendar_date(1925, Month::January, 15)?;
+        let time = Time::from_hms(10, 30, 0)?;
+
+        let date_time = PrimitiveDateTime::new(date, time);
+
+        assert_eq!(Value::DateTime(date_time), row.get("UPDATED")?);
 
         Ok(())
     }
